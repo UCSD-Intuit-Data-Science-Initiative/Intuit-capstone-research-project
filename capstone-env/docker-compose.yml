@@ -1,0 +1,47 @@
+x-common: &common
+  image: d23-capstone:latest
+  build:
+    context: .
+    target: base
+    args:
+      UID: ${UID:-1000}
+      GID: ${GID:-1000}
+  env_file:
+    - path: .env
+      required: false
+  volumes:
+    - .:/workspace
+  working_dir: /workspace
+
+services:
+  # Interactive shell: `make shell`
+  dev:
+    <<: *common
+    stdin_open: true
+    tty: true
+    command: bash
+
+  # Jupyter Lab on http://localhost:8888 : `make jupyter`
+  jupyter:
+    <<: *common
+    profiles: ["jupyter"]
+    ports:
+      - "8888:8888"
+    command: >
+      jupyter lab --ip=0.0.0.0 --port=8888 --no-browser
+      --ServerApp.token=${JUPYTER_TOKEN:-capstone} --notebook-dir=/workspace
+
+  # Same as dev, plus torch/transformers for local guard models: `make build-guard`
+  guard:
+    <<: *common
+    image: d23-capstone:guard
+    profiles: ["guard"]
+    build:
+      context: .
+      target: guard
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    stdin_open: true
+    tty: true
+    command: bash

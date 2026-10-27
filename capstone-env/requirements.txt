@@ -1,0 +1,29 @@
+# Core environment for the capstone harness.
+# Exact versions are pinned in requirements.lock (generated) so every
+# teammate gets identical packages. Edit this file, then regenerate the lock.
+
+# FinVault runtime (what its sandbox code actually imports)
+gymnasium>=1.0
+pyyaml>=6.0
+python-dotenv>=1.0
+requests>=2.31
+numpy>=1.26
+pandas>=2.2
+
+# Model clients (swappable models)
+openai>=1.50
+anthropic>=0.40
+tenacity>=8.2
+
+# Data models for cases and traces
+pydantic>=2.6
+
+# Analysis
+scipy>=1.11
+matplotlib>=3.8
+lifelines>=0.29
+
+# Dev / testing
+pytest>=8.0
+ipykernel>=6.29
+jupyterlab>=4.2

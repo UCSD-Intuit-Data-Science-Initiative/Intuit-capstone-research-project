@@ -1,0 +1,7 @@
+# OPTIONAL heavy extras: only needed to run local safeguard models
+# (FinVault's Llama Guard scripts) or open-weight models on your own GPU.
+# Not part of the default image. Build with:  make build-guard
+torch>=2.3
+transformers>=4.44
+huggingface-hub>=0.24
+accelerate>=0.33
