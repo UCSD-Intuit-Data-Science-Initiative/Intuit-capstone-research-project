@@ -12,7 +12,7 @@ export GID := $(shell id -g)
 IMAGE      := d23-capstone:latest
 COMPOSE    := docker compose
 
-.PHONY: build build-guard shell jupyter smoke test
+.PHONY: build build-guard shell jupyter smoke test run
 
 ## build        – build the base image
 build:
@@ -37,3 +37,7 @@ smoke:
 ## test         – run the full pytest suite
 test:
 	$(COMPOSE) run --rm dev python -m pytest tests/ -v
+
+## run          – run the harness, e.g. make run ARGS="--model claude --k 4 --out results/exp1"
+run:
+	$(COMPOSE) run --rm dev python -m capstone.cli run $(ARGS)
