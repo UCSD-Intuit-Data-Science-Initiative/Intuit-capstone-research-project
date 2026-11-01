@@ -18,6 +18,17 @@ make profile   # verify checksums, profile, compare to profile_expected.yaml (ex
 Writes `interim/profile/` (`profile.json` + per-example CSVs) and `docs/profile_report.md`.
 Definitions: `docs/reference/profile_nov1.py`, re-implemented and tested in `src/capstone/data/`.
 
+## Select candidates (Stage 3)
+
+```bash
+make select    # filter, split by company, check the gate (exit 1 if the gate fails)
+```
+
+Writes `interim/stage3/candidates.csv` (every conversation with status, drop reason, metric,
+scale, input cells, split), `interim/stage3/selection.json`, and `docs/selection_report.md`.
+Held-out companies also get cut versions (`id` ends `|cut@N`, `truncated_at` = N turns kept)
+that end in a `difference` metric.
+
 ## Get the data
 
 ```bash

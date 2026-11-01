@@ -84,11 +84,13 @@ def profile_finqa(splits: dict[str, list[dict]]) -> tuple[dict, list[dict]]:
         steps[len(prog.steps)] += 1
         row["n_steps"] = len(prog.steps)
         try:
-            ours = execute(prog, e["table"])
+            ours = execute(prog, e["table"], percent_rule="nov1")
             row["ours"] = ours
             row["reexec_ok"] = answers_match(ours, qa["exe_ans"])
+            row["reexec_ok_dataset_rule"] = answers_match(
+                execute(prog, e["table"], percent_rule="dataset"), qa["exe_ans"])
         except ProgramError as exc:
-            row.update(reexec_ok=False, exec_error=str(exc))
+            row.update(reexec_ok=False, reexec_ok_dataset_rule=False, exec_error=str(exc))
         if not row["reexec_ok"]:
             row["failure_cause"] = failure_cause(prog, e["table"])
         reexec += row["reexec_ok"]
@@ -158,7 +160,7 @@ def profile_convfinqa(splits: dict[str, list[dict]]) -> tuple[dict, dict, list[d
             row = {"id": e["id"], "turn": k, "program": text, "gold": gold}
             try:
                 p = parse(text)
-                ours = execute(p, table)
+                ours = execute(p, table, percent_rule="nov1")
                 row.update(ours=ours, reexec_ok=answers_match(ours, gold),
                            selection=p.is_selection, multistep=p.is_multistep)
                 progs.append(p)
@@ -318,7 +320,9 @@ def render_report(result: dict) -> str:
         "Causes: " + ", ".join(f"{k} {v}" for k, v in pl["finqa_reexec_failure_causes"].items()) + ".",
         "",
         "- `percent_cells`: the row holds `%` cells. The dataset reads `26.2%` as 0.262; the Nov 1",
-        "  cell rule (first number in the cell) reads 26.2, so ours is 100× gold.",
+        "  cell rule (first number in the cell) reads 26.2, so ours is 100× gold. Under the Stage 3",
+        f"  dataset percent rule, {pl['finqa_reexec_match_dataset_rule']:,} / "
+        f"{result['profile']['finqa_labelled']:,} programs re-execute.",
         "- `duplicate_row_name`: the table has two rows with that name (e.g. a high and a low",
         "  price block); the rule takes the first, the dataset used the other.",
         "",
@@ -373,6 +377,9 @@ def run(root: Path, log: Log = print) -> int:
     }
     pipeline["finqa_reexec_failure_causes"] = dict(Counter(
         r.get("failure_cause", "parse_error") for r in result["finqa_reexec_failures"]))
+    # Stage 3 percent rule ("26.2%" -> 0.262, as the dataset reads it)
+    pipeline["finqa_reexec_match_dataset_rule"] = sum(bool(r.get("reexec_ok_dataset_rule"))
+                                                      for r in fin_rows)
     out = root / "data" / "interim" / "profile"
     out.mkdir(parents=True, exist_ok=True)
     (out / "profile.json").write_text(json.dumps(result, indent=2, default=str) + "\n")

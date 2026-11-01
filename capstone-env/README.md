@@ -47,6 +47,7 @@ make test           # run pytest suite
 | `make data` | Fetch FinQA + ConvFinQA at pinned commits and verify checksums |
 | `make data-verify` | Offline check of `data/raw` against `data/checksums.sha256` |
 | `make profile` | Profile the data and compare to the Nov 1 numbers |
+| `make select` | Select candidates, split by company, check the gate |
 
 ## Project layout
 

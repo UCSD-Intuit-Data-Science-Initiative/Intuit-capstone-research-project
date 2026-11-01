@@ -8,7 +8,9 @@ Grammar (as the datasets use it):
 
 "#k" is the result of step k of the same program. "%" literals are divided by 100.
 Binary ops: add, subtract, multiply, divide, exp, greater ("yes"/"no").
-Table ops take a row name: table_max, table_min, table_sum, table_average.
+Table ops take a row name: table_max, table_min, table_sum, table_average. They read
+cells with the percent rule passed to execute(): "dataset" (default; "26.2%" -> 0.262,
+matching '%' literals) or "nov1" (only to reproduce the Nov 1 profile; "26.2%" -> 26.2).
 
 Gold labels in later stages are recomputed with execute(), so it fails loudly
 (ProgramError) instead of guessing.
@@ -20,7 +22,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Sequence, Union
 
-from capstone.data.cells import first_number
+from capstone.data.cells import PercentRule, cell_value
 
 Value = Union[float, str]  # str only for greater(): "yes" / "no"
 
@@ -109,21 +111,31 @@ def literal_value(tok: str) -> float:
     return float(t[:-1]) / 100 if t.endswith("%") else float(t)
 
 
-def _table_row(table: Sequence[Sequence[str]], name: str) -> list[float]:
+def _table_row(table: Sequence[Sequence[str]], name: str, rule: PercentRule) -> list[float]:
     for row in table:
         if row and row[0].strip().lower() == name.lower():
-            return [v for v in map(first_number, row[1:]) if v is not None]
+            return [v for v in (cell_value(c, rule) for c in row[1:]) if v is not None]
     raise ProgramError(f"no table row named {name!r}")
 
 
-def execute(program: Program | str, table: Sequence[Sequence[str]] = ()) -> Value:
+def execute(program: Program | str, table: Sequence[Sequence[str]] = (),
+            percent_rule: PercentRule = "dataset") -> Value:
     prog = parse(program) if isinstance(program, str) else program
     if prog.is_selection:
         return literal_value(prog.selection)
+    return evaluate_steps(prog, table, percent_rule)[-1]
+
+
+def evaluate_steps(program: Program | str, table: Sequence[Sequence[str]] = (),
+                   percent_rule: PercentRule = "dataset") -> list[Value]:
+    """The result of every step, in order (results[k] is what '#k' refers to)."""
+    prog = parse(program) if isinstance(program, str) else program
+    if prog.is_selection:
+        return [literal_value(prog.selection)]
     results: list[Value] = []
     for step in prog.steps:
         if step.is_table_op:
-            values = _table_row(table, step.args[0])
+            values = _table_row(table, step.args[0], percent_rule)
             if not values:
                 raise ProgramError(f"row {step.args[0]!r} has no numbers")
             results.append(TABLE[step.op](values))
@@ -133,7 +145,7 @@ def execute(program: Program | str, table: Sequence[Sequence[str]] = ()) -> Valu
             results.append(BINARY[step.op](x, y))
         except ZeroDivisionError as exc:
             raise ProgramError(f"division by zero in {prog.text!r}") from exc
-    return results[-1]
+    return results
 
 
 def _resolve(arg: str, results: list[Value]) -> float:
@@ -146,6 +158,24 @@ def _resolve(arg: str, results: list[Value]) -> float:
             raise ProgramError(f"{arg} is a yes/no result, not a number")
         return v
     return literal_value(arg)
+
+
+def substitute(program: Program | str, old: str, new: str) -> Program:
+    """Replace every number-literal arg equal to `old` with `new` (e.g. after editing that cell).
+
+    Matching is by value as written ("6305" == "6305.0"); refs, constants and row names are untouched.
+    """
+    prog = parse(program) if isinstance(program, str) else program
+    if not is_number_literal(old) or not is_number_literal(new):
+        raise ProgramError(f"substitute needs number literals, got {old!r} -> {new!r}")
+    same = lambda a: is_number_literal(a) and a.endswith("%") == old.endswith("%") \
+        and float(a.rstrip("%")) == float(old.rstrip("%"))
+    if prog.is_selection:
+        return parse(new) if same(prog.selection) else prog
+    steps = tuple(Step(s.op, tuple(new if (not s.is_table_op and same(a)) else a for a in s.args))
+                  for s in prog.steps)
+    text = ", ".join(f"{s.op}({', '.join(s.args)})" for s in steps)
+    return Program(text=text, steps=steps)
 
 
 def literals(program: Program, include_selection: bool = False) -> list[str]:
