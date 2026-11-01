@@ -112,18 +112,24 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - Pilot mix target: growth_rate 5, ratio 5 (10 families, one per company); plus the 2 smoke families first.
 - Read candidates from data/interim/stage3/candidates.csv (regenerate with `make select`; deterministic).
 - Thresholds must use each candidate's `metric_scale`: fraction (0.0174 = 1.74%), percent (program ends x100),
-  amount (difference, in `unit`). The threshold margin is still an open decision.
+  amount (difference, in `unit`).
+- Threshold rule (decided Nov 1): the true metric must be at least max(0.5 percentage points, 10% relative)
+  from the threshold. Every wrong value (stale, hypothetical, unsupported claim) must be on the OPPOSITE side
+  of the threshold by the same margin. Thresholds are rounded to realistic values (and the margins re-checked
+  after rounding).
+- Hidden totals (decided Nov 1): before editing a cell, check numerically whether it takes part in any
+  a ± b = c relation within its row or column (within the rounding tolerance). If it does, pick another cell
+  or skip the family. (Stage 3 only caught rows/columns labelled "total".)
 - Edit only the cells in `numerator_inputs` / `denominator_inputs` (difference: `inputs` roles minuend /
   subtrahend); version 4 edits one of the `n_irrelevant_cells`. Use `edit_cell` + `substitute`, then recompute.
 - Difference families (held-out only) are built from the cut conversation: the first `truncated_at` turns.
 - Held-out candidates feed only the sealed held-out set (Stage 5); do not use them to tune the pilot.
-- Known limit: total detection only recognises rows/columns labelled "total".
 - Done in Stage 3 (from the Stage 2 notes): answer/exe_ans disagreements dropped; one percent rule with an
   edit-and-recompute test; table-op programs and duplicate row names dropped.
 
 ## Open decisions
 - Dhruvi: credit review instead of invoice review?
-- Restatement rule wording; acceptable actions for unsupported claims; threshold margin; real vs renamed companies.
+- Restatement rule wording; acceptable actions for unsupported claims; real vs renamed companies.
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -146,3 +152,6 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   growth_rate + ratio. Gate: ≥30 candidates per side, ≥10 companies per required metric.
 - 2026-11-01 Held-out share raised from 20% to 30% because the held-out difference gate (≥10 companies) failed
   at 20% under the strict unit rule. Decided before any model runs; gates unchanged.
+- 2026-11-01 Stage 4 rules set: threshold margin max(0.5 pp, 10% relative), wrong values on the opposite side
+  by the same margin, realistic rounded thresholds; numeric hidden-total check (a ± b = c in row/column)
+  before any cell edit.
