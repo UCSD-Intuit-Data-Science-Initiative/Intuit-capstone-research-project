@@ -1,0 +1,32 @@
+# Pinned upstream sources for the fact layer (Stage 1).
+#
+# Each file is fetched from GitHub at the pinned commit and checked against
+# the git blob id recorded here (from `git ls-tree -l <commit>`), so a
+# download that is not byte-for-byte the pinned version is rejected.
+# Only data, license and README files are fetched; upstream code is not.
+#
+# To change a pin: update commit + every file's git_blob/size, then re-lock
+# checksums (see data/README.md) and log the change in CLAUDE.md.
+
+sources:
+  - name: finqa
+    repo: https://github.com/czyssrs/FinQA
+    commit: 0f16e2867befa6840783e58be38c9efb9229d742   # 2022-06-05, tip of main on 2026-11-01
+    license: MIT
+    files:
+      - {path: LICENSE,                  git_blob: fb3b513238ba5ec7e0799cb1190ff30c759a5bdf, size: 1067}
+      - {path: README.md,                git_blob: 8fc89f8402714c39385a80c3d7d5e947ae27fcab, size: 6518}
+      - {path: dataset/train.json,       git_blob: a6c2c5a60f9abe3fba5a793cc4d9e1dee2e09209, size: 78216616}
+      - {path: dataset/dev.json,         git_blob: 970f239f591c782b17df420c0d343b780737f3da, size: 10954658}
+      - {path: dataset/test.json,        git_blob: 59958c7c3bb3b21f4dff6bc912a0fe0ae710aee0, size: 14395143}
+      - {path: dataset/private_test.json, git_blob: af7ef36c00f4d4d31c77d54512a01ba32bf7be92, size: 5597114}
+
+  - name: convfinqa
+    repo: https://github.com/czyssrs/ConvFinQA
+    commit: cf3eed2d5984960bf06bb8145bcea5e80b0222a6   # 2022-11-09, tip of main on 2026-11-01
+    license: MIT
+    files:
+      - {path: LICENSE,   git_blob: 9a3f3e377aafc37cbffceb4efd7791d860a58692, size: 1067}
+      - {path: README.md, git_blob: b48c4e5bcf72688cc10308c126fd2937ab4f2d22, size: 6164}
+      # Unzips to data/{train,dev,train_turn,dev_turn,test_private,test_turn_private}.json
+      - {path: data.zip,  git_blob: bde03381e2d9ef0043796f2722f7a87633887358, size: 17512756, extract: true}

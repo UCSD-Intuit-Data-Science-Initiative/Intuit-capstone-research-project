@@ -44,6 +44,8 @@ make test           # run pytest suite
 | `make jupyter` | Start Jupyter Lab on port 8888 |
 | `make smoke` | Run the smoke test (no API keys needed) |
 | `make test` | Run the full pytest suite |
+| `make data` | Fetch FinQA + ConvFinQA at pinned commits and verify checksums |
+| `make data-verify` | Offline check of `data/raw` against `data/checksums.sha256` |
 
 ## Project layout
 
@@ -52,6 +54,8 @@ src/capstone/      ← our code (mounted into the container)
 scripts/           ← one-off scripts, smoke test
 notebooks/         ← Jupyter notebooks
 cases/             ← case definition files
+data/              ← FinQA/ConvFinQA (fetch with `make data`; see data/README.md)
+docs/              ← dataset card, review log
 results/           ← experiment outputs (git-ignored)
 tests/             ← pytest tests
 ```
