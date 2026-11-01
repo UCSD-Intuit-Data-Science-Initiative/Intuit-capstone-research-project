@@ -7,6 +7,16 @@
 | `families/` | Authored case families (decision layer) | Yes |
 | `sources.yaml` | Pinned repos, commits, files, git blob ids | Yes |
 | `checksums.sha256` | SHA-256 of every file in `raw/` | Yes |
+| `profile_expected.yaml` | Nov 1 profile numbers that `make profile` must reproduce | Yes |
+
+## Profile the data (Stage 2)
+
+```bash
+make profile   # verify checksums, profile, compare to profile_expected.yaml (exit 1 on any difference)
+```
+
+Writes `interim/profile/` (`profile.json` + per-example CSVs) and `docs/profile_report.md`.
+Definitions: `docs/reference/profile_nov1.py`, re-implemented and tested in `src/capstone/data/`.
 
 ## Get the data
 

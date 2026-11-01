@@ -1,0 +1,38 @@
+# Expected Stage 2 profile: output of docs/reference/profile_nov1.py, run once on 2026-11-01
+# (inside Docker) on data/raw at the commits pinned in data/sources.yaml:
+#   python -I docs/reference/profile_nov1.py data/raw/finqa/dataset data/raw/convfinqa/data
+# Every headline number matches CLAUDE.md and the data plan.
+# Our own code (src/capstone/data/profile.py) must reproduce every field exactly.
+# Keys are the reference script's own names. "conv_multistep_turns(#)" was previously
+# mislabelled "reuse an earlier turn's result"; it counts turn programs containing '#n'.
+
+finqa_split_counts: {train: 6251, dev: 883, test: 1147, private_test: 919}
+finqa_labelled: 8281
+finqa_companies: 137
+finqa_years: "1999-2019"
+finqa_ops:
+  divide: 5901
+  subtract: 3676
+  add: 1952
+  multiply: 759
+  greater: 154
+  table_average: 129
+  table_max: 66
+  table_sum: 50
+  table_min: 36
+  exp: 9
+finqa_steps: {1: 4894, 2: 2709, 3: 429, 4: 118, 5: 125, 6: 6}
+finqa_reexec_match: 8249
+finqa_evidence: {table: 5170, text: 1939, both: 1172}
+finqa_trace: {base: 8006, all_found: 5230, exactly_one: 4477}
+
+conv_split_counts: {train: 3037, dev: 421, test_private: 434}
+conv_labelled: 3458
+conv_types: {I: 2409, II: 1049}
+conv_turns_per_conv: {1: 6, 2: 858, 3: 751, 4: 940, 5: 649, 6: 184, 7: 52, 8: 16, 9: 2}
+conv_turns: 12594
+conv_reexec_match: 12594
+conv_number_selection_turns: 4398
+"conv_multistep_turns(#)": 3704
+conv_trace: {base: 3455, all_found: 2127, exactly_one: 1754}
+conv_pool: {pool: 1304, of: 3458}

@@ -33,20 +33,24 @@ Sources: FinQA (github.com/czyssrs/FinQA) and ConvFinQA (github.com/czyssrs/Conv
 They are the FACT layer (real 10-K figures + executable programs). We author the DECISION layer
 (pending action, explicit policy, scripted updates, gold per turn). Neither dataset is usable as-is.
 
-Verified profile (Nov 1 2026, our own run — reproduce in stage 2, investigate any difference).
-Exact definitions: docs/reference/profile_nov1.py (reference script; Stage 2 re-implements it with tests).
+Verified profile (Nov 1 2026; reproduced exactly by Stage 2 — `make profile`, docs/profile_report.md).
+Exact definitions: docs/reference/profile_nov1.py (reference script; re-implemented with tests in src/capstone/data/).
 - FinQA: 8,281 labelled (train 6,251 / dev 883 / test 1,147) + 919 private (no answers). 137 companies, 1999–2019.
   Programs re-execute to published answer: 8,249/8,281 (99.6%). Inputs trace to exactly one table cell: 4,477/8,006 (56%).
+  All 32 non-matches are table ops: 30 rows of % cells (dataset reads "26.2%" as 0.262), 2 duplicate row names.
 - ConvFinQA: 3,458 labelled conversations (train 3,037 / dev 421), 12,594 turns, + 434 private.
   Turn answers re-execute: 12,594/12,594 (100%). Type I 2,409 / type II 1,049. 3,704 turns (29%) have a
   multi-step program (contain '#n'); '#n' points inside the same turn's program, so this is only a proxy for
   "builds on earlier turns". 4,398 turns are bare number selections.
   1,304 conversations have ≥3 turns AND every input traces to exactly one table cell → our starting pool.
+  Counting number-selection turns as inputs gives the same 1,754 / 1,304 (selected numbers are re-written
+  into later op turns; only 3 conversations select a number no op turn reuses).
 - Program DSL ops: add, subtract, multiply, divide, exp, greater, table_max/min/sum/average; `#n` = result of step n;
   `const_100`, `const_m1` (= -1); `%` literals are /100. Number-selection turns are a bare number (no op).
-- Known traps: label noise (FinQA train[0] asks "interest expense in 2009", answer 3.8 is the CHANGE);
-  cells like "$ 6305", "14.3% ( 14.3 % )", "-23158 ( 23158 )"; units ("in millions") usually in page text;
-  editing a cell that feeds a "total" row makes the table inconsistent.
+- Known traps: label noise (FinQA train[0] asks "interest expense in 2009"; 3.8 is the CHANGE if LIBOR moves
+  100 bp, and its written `answer` says 380 while `exe_ans` is 3.8); cells like "$ 6305", "14.3% ( 14.3 % )",
+  "-23158 ( 23158 )"; units ("in millions") usually in page text; editing a cell that feeds a "total" row
+  makes the table inconsistent.
 
 Proposed workflow: annual credit-line renewal review (renew / decline / escalate / request evidence) with a
 policy metric = the example's own program, so gold is recomputed by code after any edit.
@@ -54,15 +58,16 @@ Pilot: 2 smoke families → 10 reviewed families × 6 versions (1,2,3,4,5a hypot
 Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until Q2. Split by company.
 
 ## Repo map
-- `src/capstone/data/` data pipeline: `fetch.py` (Stage 1 fetch + checksums).
+- `src/capstone/data/` data pipeline: `fetch.py` (Stage 1 fetch + checksums), `program.py` (DSL parser/executor,
+  answer tolerance), `cells.py` (cell numbers + input tracing), `profile.py` (Stage 2).
 - Harness v0.1 is NOT in this repo yet (see Status). `cases/` stays empty until it is merged.
   `results/` run outputs (git-ignored).
 - Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`.
   Pins: `data/sources.yaml` (commits + git blob ids), `data/checksums.sha256` (SHA-256 of all 15 raw files).
-  See `data/README.md`.
-- `notebooks/` (profiling), `docs/` (later dataset card, review log).
+  `data/profile_expected.yaml` = Nov 1 numbers that `make profile` must reproduce. See `data/README.md`.
+- `notebooks/` (02_profile.ipynb), `docs/` (profile_report.md, reference/; later dataset card, review log).
 - Run everything in Docker: `make build`, `make test`, `make smoke`, `make shell`, `make data`,
-  `make data-verify`.
+  `make data-verify`, `make profile`.
 
 ## Working rules
 - ONE stage per session (stages in the data plan). Propose a short plan and wait for approval before writing code.
@@ -79,8 +84,17 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   merge it as its own task before Stage 6.
 - [x] Data profiling + data plan (Nov 1)
 - [x] Stage 1 data layout + pinned fetch + checksums (Nov 1; tests/test_fetch.py)
-- [ ] 2 profile  · [ ] 3 select  · [ ] 4 build families
+- [x] Stage 2 profile: 54/54 Nov 1 fields reproduced (Nov 1; tests/test_program.py, tests/test_profile.py)
+- [ ] 3 select  · [ ] 4 build families
 - [ ] 5 review + scale  · [ ] 6 connect to harness (report/record/calculator tools, record-state checks)
+
+## Stage 3 notes (from Stage 2 findings; not done yet)
+- Count how often the written `answer` and computed `exe_ans` disagree, and drop those examples.
+- Pick ONE percent rule, following the dataset: "26.2%" means 0.262. Make `cells.py` and `program.py` agree
+  (today a "4.02%" literal is 0.0402 but a "26.2%" cell reads 26.2, and tracing compares % as written).
+  Keep the Nov 1 rule available so `make profile` still reproduces profile_expected.yaml.
+  Stage 4 edits percent cells, so add a test that edits a percent cell and recomputes the answer.
+- Drop table-operation programs and examples where a row name appears twice.
 
 ## Open decisions
 - Dhruvi: credit review instead of invoice review?
@@ -94,3 +108,6 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   fetch only data/LICENSE/README via raw.githubusercontent, verified by git blob id + SHA-256. Raw = 15 files,
   375,443,231 bytes (incl. unzipped ConvFinQA). `data/interim/` is git-ignored (regenerable).
   Docker Desktop ignores in-container chmod, so the Makefile makes raw files read-only from the host.
+- 2026-11-01 "Reuse 3,704" relabelled "multi-step turn programs (contain #n)"; the old label was wrong.
+- 2026-11-01 Stage 2 reproduced all 54 profile numbers; written answer and computed exe_ans can disagree,
+  so we use exe_ans.

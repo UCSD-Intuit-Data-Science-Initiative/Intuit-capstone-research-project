@@ -12,7 +12,7 @@ export GID := $(shell id -g)
 IMAGE      := d23-capstone:latest
 COMPOSE    := docker compose
 
-.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify
+.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile
 
 ## build        – build the base image
 build:
@@ -55,3 +55,7 @@ data-lock:
 ## data-verify  – offline: check data/raw against data/checksums.sha256
 data-verify:
 	$(COMPOSE) run --rm dev python -m capstone.data.fetch --verify
+
+## profile      – Stage 2: profile the data, compare to data/profile_expected.yaml
+profile:
+	$(COMPOSE) run --rm dev python -m capstone.data.profile
