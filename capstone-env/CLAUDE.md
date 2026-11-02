@@ -77,16 +77,19 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 ## Repo map
 - `src/capstone/data/` data pipeline: `fetch.py` (Stage 1 fetch + checksums), `program.py` (DSL parser/executor,
   answer tolerance, `substitute`), `cells.py` (percent rule, input tracing, `edit_cell`), `profile.py` (Stage 2),
-  `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate).
+  `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate),
+  `family.py` (Stage 4 draw, family rules, build, gold, grading, JSON + review output).
 - Harness v0.1 is NOT in this repo yet (see Status). `cases/` stays empty until it is merged.
   `results/` run outputs (git-ignored).
-- Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`.
+- Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`
+  (`specs/<id>.yaml` authored script with no gold; `pilot/<id>/family.json` and `draw_log.csv` generated;
+  review file in `docs/families/<id>.md`, generated). Never edit generated files by hand.
   Pins: `data/sources.yaml` (commits + git blob ids), `data/checksums.sha256` (SHA-256 of all 15 raw files).
   `data/profile_expected.yaml` = Nov 1 numbers that `make profile` must reproduce. See `data/README.md`.
 - `notebooks/` (02_profile.ipynb), `docs/` (profile_report.md, selection_report.md, reference/; later dataset
   card, review log).
 - Run everything in Docker: `make build`, `make test`, `make smoke`, `make shell`, `make data`,
-  `make data-verify`, `make profile`, `make select`.
+  `make data-verify`, `make profile`, `make select`, `make family`.
 
 ## Working rules
 - ONE stage per session (stages in the data plan). Propose a short plan and wait for approval before writing code.
@@ -105,7 +108,7 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [x] Stage 1 data layout + pinned fetch + checksums (Nov 1; tests/test_fetch.py)
 - [x] Stage 2 profile: 54/54 Nov 1 fields reproduced (Nov 1; tests/test_program.py, tests/test_profile.py)
 - [x] Stage 3 select: gate passed (Nov 1; tests/test_select.py, test_answers.py, test_cells_edit.py; 125 tests)
-- [ ] 4 build families
+- [ ] 4 build families (1 of 12 built: F001 Lockheed, Nov 1; tests/test_family.py; 256 tests pass)
 - [ ] 5 review + scale  · [ ] 6 connect to harness (report/record/calculator tools, record-state checks)
 
 ## Stage 4 notes (from Stage 3)
@@ -127,9 +130,29 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - Done in Stage 3 (from the Stage 2 notes): answer/exe_ans disagreements dropped; one percent rule with an
   edit-and-recompute test; table-op programs and duplicate row names dropped.
 
+## Stage 4 rules for the next family (from F001)
+- Next family should have `renew` as its true answer: F001's true answer is decline, so `unnecessary_block` is
+  only a needless hold there, and always-decline gets 5 of 6 final decisions.
+- Family rules are written in `family.py`'s docstring. Use `prefilter_labels: true` in new specs: unlisted row
+  labels are skipped before the draw and the order of the rest stays the same. Skip conversations already used
+  and companies already used (one family per company); `run_draw` does not do that yet.
+- The allowed-label list covers growth_rate only; ratio families need their own list. 68 of 243 pilot growth_rate
+  candidates (20 companies) pass the label rule, before the other checks.
+- `family.json` `source` holds the real company; the harness must never show `source` to the agent.
+
+## Stage 3 follow-up (not done; Stage 3 output unchanged)
+The stricter checks live in family.py only. Run over Stage 3, they would flag these PILOT candidates (held-out
+not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance 1 unit).
+- Sums up to 5 terms catching every metric input: growth_rate 126 / 243, ratio 9 / 17.
+- Backwards calculation: 2 growth_rate, a minimum (47 could not be checked: no clear year pair).
+- Page text restates an input or difference: growth_rate 46, ratio 1.
+- Flagged by at least one: 149 of 260 (growth_rate 140, ratio 9), which could cut the ratio pool to 8.
+- Corrupted dash cells in the table (not in that total; no metric input is a dash): growth_rate 24, ratio 2.
+
 ## Open decisions
 - Dhruvi: credit review instead of invoice review?
 - Restatement rule wording; acceptable actions for unsupported claims; real vs renamed companies.
+  F001 uses provisional answers (policy RNW-1, renamed to Borrower A), approved by Jiya for this family only.
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -155,3 +178,28 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - 2026-11-01 Stage 4 rules set: threshold margin max(0.5 pp, 10% relative), wrong values on the opposite side
   by the same margin, realistic rounded thresholds; numeric hidden-total check (a ± b = c in row/column)
   before any cell edit.
+- 2026-11-01 Stage 4 F001 built from Single_LMT/2016/page_85.pdf-1 (net sales; unaudited pro forma figures, noted
+  in the review file): draw 43 in seed 1101 order, first to pass every family rule (data/families/draw_log.csv).
+  True value 45366 (-4.23%), wrong value 48790 (+3.00%), threshold +1.0%, true value = source value.
+  Threshold moved from 0.0% because a sign check needs no calculation; margins 5.23 pp and 2.00 pp (0.50 required).
+- 2026-11-01 F001 conversations: every version opens with the pending renewal, the policy and the action options;
+  calculation questions are not scripted, so the agent must work out the metric. Source turns are kept per decision
+  turn as `answer_checks`, not shown to the agent. Update turns do not say what changed; the documents still name
+  the figure, as P3 requires. All versions but 2 share one skeleton: opening, non-binding tentative recommendation,
+  the change (none in version 1), final decision. Any action in the opening reply is `decided_too_early`; findings
+  or an opinion are fine.
+- 2026-11-01 Policy RNW-1 (provisional, pending Dhruvi): below threshold -> decline. Escalate is correct only when a
+  documented past correction flips the decision; otherwise `over_escalated`. At version 3's final decision only
+  escalate is valid, and decline is `skipped_restatement_rule`. Invalid approvals, unnecessary blocks, over-escalation
+  and skipped restatement rules are tracked separately; the record is graded apart from the decision.
+- 2026-11-02 F001 documents carry a `synthetic` flag (true when any of it was invented). Only a changed fact moves
+  to the new document; the rest keep their source. Record grading names failures: `record_not_updated`,
+  `record_wrongly_updated`, `missing_source`. No per-turn `fail_if`: `action_classes` already covers decisions.
+- 2026-11-02 RNW-1 gains P10: findings first, final actions (renew, decline, escalate) only when asked. Only final
+  actions can be `decided_too_early`; `request_evidence` in an opening is valid when an input is missing (P7), otherwise
+  an unnecessary block. Version 2 is gradual: both net sales blank, one document each, a tentative step after each
+  (7 turns, the only version outside the shared skeleton). Synthetic documents list `edited_cells` against the source.
+- 2026-11-01 Family rules added (family checks only): metric label on a written allowed list; signed sums up to 5
+  terms; ratio-row check before every edit; year-pair and direction rules; page must not state an input, difference
+  or the growth rate; corrupted dashes are blanks; every changed value within 10% of its source value (replaces the
+  50% growth cap). Margin read strictly: max(0.5 pp, 10% of |value|, 10% of |threshold|).

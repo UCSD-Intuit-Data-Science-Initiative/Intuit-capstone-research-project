@@ -29,6 +29,16 @@ scale, input cells, split), `interim/stage3/selection.json`, and `docs/selection
 Held-out companies also get cut versions (`id` ends `|cut@N`, `truncated_at` = N turns kept)
 that end in a `difference` metric.
 
+## Build families (Stage 4)
+
+```bash
+make family    # draw, build every specs/*.yaml, stop on any broken family rule
+```
+
+Writes `families/pilot/<id>/family.json`, `docs/families/<id>.md` and `families/draw_log.csv`, all
+generated and byte-identical on rerun. `families/specs/<id>.yaml` is the authored script (no gold).
+The family rules are listed in `src/capstone/data/family.py`.
+
 ## Get the data
 
 ```bash
