@@ -48,6 +48,7 @@ make test           # run pytest suite
 | `make data-verify` | Offline check of `data/raw` against `data/checksums.sha256` |
 | `make profile` | Profile the data and compare to the Nov 1 numbers |
 | `make select` | Select candidates, split by company, check the gate |
+| `make family` | Build case families from `data/families/*/family.json` (writes only under `data/families/`) |
 
 ## Project layout
 
@@ -56,7 +57,7 @@ src/capstone/      ← our code (mounted into the container)
 scripts/           ← one-off scripts, smoke test
 notebooks/         ← Jupyter notebooks
 cases/             ← case definition files
-data/              ← FinQA/ConvFinQA (fetch with `make data`; see data/README.md)
+data/              ← FinQA/ConvFinQA (fetch with `make data`) and case families; see data/README.md
 docs/              ← dataset card, review log
 results/           ← experiment outputs (git-ignored)
 tests/             ← pytest tests

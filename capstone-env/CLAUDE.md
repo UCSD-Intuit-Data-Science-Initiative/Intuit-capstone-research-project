@@ -77,16 +77,19 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 ## Repo map
 - `src/capstone/data/` data pipeline: `fetch.py` (Stage 1 fetch + checksums), `program.py` (DSL parser/executor,
   answer tolerance, `substitute`), `cells.py` (percent rule, input tracing, `edit_cell`), `profile.py` (Stage 2),
-  `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate).
+  `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate),
+  `family.py` (Stage 4 edit checks, six versions, gold, action checker, review file).
 - Harness v0.1 is NOT in this repo yet (see Status). `cases/` stays empty until it is merged.
   `results/` run outputs (git-ignored).
 - Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`.
   Pins: `data/sources.yaml` (commits + git blob ids), `data/checksums.sha256` (SHA-256 of all 15 raw files).
   `data/profile_expected.yaml` = Nov 1 numbers that `make profile` must reproduce. See `data/README.md`.
+  Families: `data/families/<id>/family.json` (authored) + `gold.json` (generated), `families/policies/` (written
+  policies), `families/review/` (generated review files).
 - `notebooks/` (02_profile.ipynb), `docs/` (profile_report.md, selection_report.md, reference/; later dataset
   card, review log).
 - Run everything in Docker: `make build`, `make test`, `make smoke`, `make shell`, `make data`,
-  `make data-verify`, `make profile`, `make select`.
+  `make data-verify`, `make profile`, `make select`, `make family`.
 
 ## Working rules
 - ONE stage per session (stages in the data plan). Propose a short plan and wait for approval before writing code.
@@ -105,7 +108,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [x] Stage 1 data layout + pinned fetch + checksums (Nov 1; tests/test_fetch.py)
 - [x] Stage 2 profile: 54/54 Nov 1 fields reproduced (Nov 1; tests/test_program.py, tests/test_profile.py)
 - [x] Stage 3 select: gate passed (Nov 1; tests/test_select.py, test_answers.py, test_cells_edit.py; 125 tests)
-- [ ] 4 build families
+- [ ] 4 build families: 1 built, `gr01_lmt_2007_p55` (Nov 1; tests/test_family.py; 234 tests in total). Provisional and
+  not signed off. Stays unchecked until the 2 smoke + 10 reviewed families exist.
 - [ ] 5 review + scale  · [ ] 6 connect to harness (report/record/calculator tools, record-state checks)
 
 ## Stage 4 notes (from Stage 3)
@@ -124,12 +128,21 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   subtrahend); version 4 edits one of the `n_irrelevant_cells`. Use `edit_cell` + `substitute`, then recompute.
 - Difference families (held-out only) are built from the cut conversation: the first `truncated_at` turns.
 - Held-out candidates feed only the sealed held-out set (Stage 5); do not use them to tune the pilot.
+- Next families: start from `data/families/gr01_lmt_2007_p55/` (how: `data/README.md`). LMT is used, so pick another
+  company. Screen before authoring: both inputs in one row, year over year; no margin or % change cells; no cash-flow
+  or cost-to-profit sums; page text silent on the cell; not pro forma; a version 4 cell the page text does not narrate.
+- Coverage still missing: a family whose true value passes the threshold (else unnecessary declines are never
+  measured here) and a genuinely new event (versions 3 and 4 of this family are both past errors).
 - Done in Stage 3 (from the Stage 2 notes): answer/exe_ans disagreements dropped; one percent rule with an
   edit-and-recompute test; table-op programs and duplicate row names dropped.
 
 ## Open decisions
 - Dhruvi: credit review instead of invoice review?
 - Restatement rule wording; acceptable actions for unsupported claims; real vs renamed companies.
+  The first family uses provisional answers to all of these (see the Decision log); none is decided.
+- The data plan link above returned "artifact not found" in the Stage 4 session, so the first family was built without
+  it. Check it against the plan, especially the direction: the Aon example in the tests has wrong values below the
+  true value, the first family has them above.
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -155,3 +168,21 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - 2026-11-01 Stage 4 rules set: threshold margin max(0.5 pp, 10% relative), wrong values on the opposite side
   by the same margin, realistic rounded thresholds; numeric hidden-total check (a ± b = c in row/column)
   before any cell edit.
+- 2026-11-01 First family `gr01_lmt_2007_p55` (`Single_LMT/2007/page_55.pdf-3`): year-end backlog growth, true 7.6142%
+  (do not renew), wrong value 22200 = 12.6904% (renew), threshold 10%, version 4 cell 2005 backlog 18300 -> 18600.
+- 2026-11-01 True value = source, wrong value = edited. All six versions end on the unedited source table, so their
+  final facts are identical. One wrong value serves as stale, hypothetical and claim, so versions differ only in
+  evidence status. Version 4 starts edited and is corrected to the source.
+- 2026-11-01 This family's true value is below the threshold and the wrong value above, so failing to update is an
+  invalid approval. Here `decline` cannot be an unnecessary block; only `request_evidence` can.
+- 2026-11-01 Edit checks are build gates, stricter than the Nov 1 rule: also signed sums over 4+ cells and derived
+  percent cells, a row or column with over 10 other cells fails closed, and page text is checked. "10% relative" was
+  undefined, so both readings must hold (10% of the threshold and 10% of the value). The Aon worked example passes
+  a ± b = c but fails on its margin row (900 / 6305), so it was not used.
+- 2026-11-01 Family format v0.1: authored `family.json` with placeholders, generated `gold.json`, shared policy file,
+  generated review file. Action checker tracks invalid approvals, unnecessary blocks, invalid and missing record
+  changes and premature actions separately. Renewal has no payment step, so invalid payments count as invalid approvals.
+- 2026-11-01 PROVISIONAL, not decided: annual credit-line renewal workflow (pending Dhruvi); policy `credit_renewal_v0`
+  including its restatement wording; unsupported claims may end in `request_evidence`, `decline` or `escalate`, never
+  `renew`, with no record change; agent sees "Borrower A" and the table only, no page text; backlog growth and the 10%
+  threshold are authored for this family.

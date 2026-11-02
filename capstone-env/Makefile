@@ -12,7 +12,7 @@ export GID := $(shell id -g)
 IMAGE      := d23-capstone:latest
 COMPOSE    := docker compose
 
-.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select
+.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select family
 
 ## build        – build the base image
 build:
@@ -63,3 +63,7 @@ profile:
 ## select       – Stage 3: filter candidates, split by company, check the gate
 select:
 	$(COMPOSE) run --rm dev python -m capstone.data.select
+
+## family       – Stage 4: build case families (writes only under data/families/)
+family:
+	$(COMPOSE) run --rm dev python -m capstone.data.family

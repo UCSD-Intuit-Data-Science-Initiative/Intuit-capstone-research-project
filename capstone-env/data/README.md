@@ -4,7 +4,7 @@
 |---|---|---|
 | `raw/` | FinQA + ConvFinQA exactly as published, read-only | No (fetched) |
 | `interim/` | Outputs of pipeline scripts; always regenerable | No |
-| `families/` | Authored case families (decision layer) | Yes |
+| `families/` | Case families (decision layer): authored specs and policies, generated gold and review files | Yes |
 | `sources.yaml` | Pinned repos, commits, files, git blob ids | Yes |
 | `checksums.sha256` | SHA-256 of every file in `raw/` | Yes |
 | `profile_expected.yaml` | Nov 1 profile numbers that `make profile` must reproduce | Yes |
@@ -28,6 +28,32 @@ Writes `interim/stage3/candidates.csv` (every conversation with status, drop rea
 scale, input cells, split), `interim/stage3/selection.json`, and `docs/selection_report.md`.
 Held-out companies also get cut versions (`id` ends `|cut@N`, `truncated_at` = N turns kept)
 that end in a `difference` metric.
+
+## Build a family (Stage 4)
+
+```bash
+make family   # verify checksums, build every families/*/family.json (exit 1 if a rule fails)
+
+# compare saved gold with a rebuild, writing nothing
+docker compose run --rm dev python -m capstone.data.family --check
+```
+
+| Path | What | Written by |
+|---|---|---|
+| `families/<id>/family.json` | Source id, edits, threshold, scripts with placeholders | Hand |
+| `families/policies/<policy>.md` | The written policy shown to the agent | Hand |
+| `families/<id>/gold.json` | Tables, re-executed programs, gold per turn, acceptable next actions | `make family` |
+| `families/review/<id>.md` | Review file: table changes, conversation and gold, version by version | `make family` |
+
+`make family` reads `raw/` and `interim/stage3/candidates.csv` and never writes to them. Scripts hold
+placeholders, so every number in a conversation comes from the tables. Never edit `gold.json` or a
+review file by hand: change `family.json` and rebuild. Any failed rule stops the build, and no rule
+can be overridden from a spec.
+
+To add a family, copy an existing folder's `family.json` and change `source`, `edits`,
+`decision.threshold` and `display`, plus the `reveal` and `programs` lists if the conversation has a
+different shape. Keep the script wording where you can, so families stay comparable. Delete nothing
+from the six versions. `gr01_lmt_2007_p55` is the worked example.
 
 ## Get the data
 
