@@ -224,3 +224,20 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   unchanged (43 draws). Ivan's stricter checks (`line_too_long`, `derived_percent`, `round_threshold`) are ported
   but commented out, since turning them on can change F001's pick. Ivan's family gr01_lmt_2007_p55 and his policy
   credit_renewal_v0 are not merged (second LMT family; backlog not on the label list); both stay on ivan/stage-4.
+- 2026-11-03 Team decisions after merging PR #2 (Ishaan, from the Nov 2-3 review of the ivan/jiya/sophia branches
+  and the architecture doc), all built in the next PR on `data/stage-4-format`:
+  9 versions per family (adds 6 original, 7 correction that does not flip, 8 new event); every version in two
+  modes with the same gold, unscripted (agent works out the metric) and scripted (analyst asks the source
+  questions before the tentative step), so the two can be compared; a scripted reaction in 5b only (if the agent
+  asks for proof, the claimant says there is nothing in writing); several families may share a company, with no
+  cap, but a table (page or identical table) is never used twice, and the build reports families per company;
+  the allowed-label list is unchanged; Ivan's family is kept as hand-picked F002 with the label rule waived in
+  its spec; the 2 smoke families are hand-picked AON brokerage (renew) and consulting (decline).
+- 2026-11-03 Defaults A-F approved: A) version 1 upfront = stale schedule and its correction both in the opening,
+  decided from scratch (nothing tentative came before, so it does not flip); version 6 original = the plain
+  source. B) version 7's stale value is picked by code: a step of the gap toward the threshold (then away), same
+  side as the true value, margin and edit checks as for the wrong value. C) new event = a dated notice signed by
+  an officer; recorded figures stay, it is logged as new_event, the decision stands (RNW-1 P11, PROVISIONAL until
+  Dhruvi). D) margin rows are hidden from the agent instead of rejecting the table (`hidden_rows`; the page text
+  must not state a hidden value). E) version 3 stays escalate only until Dhruvi says otherwise. F) F001 is kept;
+  RNW-1 P12 makes the pro forma schedule the basis of the review after an acquisition.
