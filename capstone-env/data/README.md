@@ -29,6 +29,29 @@ scale, input cells, split), `interim/stage3/selection.json`, and `docs/selection
 Held-out companies also get cut versions (`id` ends `|cut@N`, `truncated_at` = N turns kept)
 that end in a `difference` metric.
 
+## Build families (Stage 4)
+
+```bash
+make family        # draw, build every specs/*.yaml, stop on any broken family rule
+make family-check  # rebuild in memory, fail if a generated file differs; writes nothing
+```
+
+| Path | What | Written by |
+|---|---|---|
+| `families/specs/<id>.yaml` | Authored script: source, edits, documents, turns; names its policy, threshold and metric (no gold) | Hand |
+| `families/policies/<policy>.yaml` | Shared written policy; `{threshold}` and `{metric}` are filled per family | Hand |
+| `families/pilot/<id>/family.json` | What the harness reads: tables, turns, gold, spec and policy sha256 | `make family` |
+| `docs/families/<id>.md` | Review file: summary table, then every version | `make family` |
+| `families/draw_log.csv` | Every draw: id, pass/fail, reason | `make family` |
+
+Generated files are byte-identical on rerun; never edit them by hand. The family rules are listed in
+`src/capstone/data/family.py`. Specs build in file-name order, and each draw skips companies and
+source ids used by earlier specs (one family per company).
+
+To add a family: copy `specs/F001.yaml` to the next id, set `prefilter_labels: true`, run
+`make family` (it stops and names the candidate the draw picked), set `source_id` to that pick, then
+author the edits, threshold, documents and renames for its table and rebuild. Read the review file.
+
 ## Get the data
 
 ```bash

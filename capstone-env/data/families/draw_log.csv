@@ -1,0 +1,44 @@
+family_id,draw,id,result,reason
+F001,1,Single_DRE/2002/page_30.pdf-3,fail,label_not_allowed; direction_backwards; sum_relation
+F001,2,Single_LLY/2018/page_63.pdf-1,fail,label_not_allowed; sum_relation
+F001,3,Single_CDNS/2007/page_93.pdf-3,fail,label_not_allowed; year_pair_unverifiable; sum_relation
+F001,4,Single_ABMD/2008/page_87.pdf-3,fail,label_not_allowed; year_pair_unverifiable; sum_relation; page_text_restates
+F001,5,Single_AAPL/2010/page_43.pdf-3,fail,label_not_allowed
+F001,6,Single_DRE/2009/page_56.pdf-1,fail,label_not_allowed; sum_relation
+F001,7,Single_PPG/2013/page_40.pdf-3,fail,label_not_allowed; sum_relation
+F001,8,Single_CDW/2015/page_53.pdf-1,fail,label_not_allowed; sum_relation
+F001,9,Single_AON/2014/page_45.pdf-3,fail,ratio_row; page_text_restates
+F001,10,Single_ZBH/2008/page_84.pdf-1,fail,label_not_allowed; year_pair_unverifiable; sum_relation; page_text_restates
+F001,11,Single_STT/2007/page_65.pdf-1,fail,label_not_allowed; sum_relation
+F001,12,Single_RE/2006/page_31.pdf-4,fail,label_not_allowed; sum_relation
+F001,13,Single_LMT/2014/page_31.pdf-2,fail,label_not_allowed; year_pair_unverifiable
+F001,14,Single_RCL/2016/page_7.pdf-2,fail,label_not_allowed; year_pair_unverifiable
+F001,15,Single_INTC/2013/page_47.pdf-1,fail,sum_relation; page_text_restates
+F001,16,Single_AWK/2015/page_117.pdf-1,fail,label_not_allowed; ratio_row
+F001,17,Single_STT/2008/page_73.pdf-4,fail,label_not_allowed; sum_relation
+F001,18,Single_APD/2014/page_44.pdf-2,fail,label_not_allowed; year_pair_unverifiable; sum_relation
+F001,19,Single_UNP/2014/page_35.pdf-3,fail,sum_relation
+F001,20,Single_EMR/2018/page_55.pdf-3,fail,label_not_allowed; year_pair_unverifiable; sum_relation
+F001,21,Single_BKR/2018/page_51.pdf-3,fail,label_not_allowed; page_text_restates
+F001,22,Single_ZBH/2013/page_68.pdf-3,fail,label_not_allowed; year_pair_unverifiable; sum_relation; page_text_restates
+F001,23,Single_AON/2011/page_61.pdf-1,fail,ratio_row
+F001,24,Single_AON/2009/page_70.pdf-1,fail,label_not_allowed; sum_relation
+F001,25,Single_LMT/2007/page_55.pdf-4,fail,label_not_allowed
+F001,26,Single_LMT/2016/page_52.pdf-3,fail,ratio_row; page_states_growth_rate
+F001,27,Single_RE/2016/page_40.pdf-4,fail,label_not_allowed; year_pair_unverifiable; sum_relation
+F001,28,Single_RSG/2008/page_141.pdf-1,fail,label_not_allowed; year_pair_unverifiable
+F001,29,Single_JPM/2017/page_83.pdf-2,fail,label_not_allowed; sum_relation; ratio_row; page_text_restates
+F001,30,Single_LMT/2016/page_83.pdf-2,fail,label_not_allowed; sum_relation
+F001,31,Single_VLO/2017/page_28.pdf-3,fail,label_not_allowed; year_pair_unverifiable; sum_relation
+F001,32,Single_BLL/2010/page_33.pdf-2,fail,page_text_restates
+F001,33,Single_AON/2014/page_45.pdf-1,fail,ratio_row
+F001,34,Single_AON/2009/page_46.pdf-3,fail,ratio_row
+F001,35,Single_BLL/2010/page_33.pdf-4,fail,page_text_restates
+F001,36,Single_OKE/2008/page_73.pdf-2,fail,label_not_allowed; sum_relation
+F001,37,Single_RCL/2018/page_38.pdf-1,fail,label_not_allowed; year_pair_unverifiable; sum_relation
+F001,38,Single_UNP/2012/page_47.pdf-2,fail,label_not_allowed
+F001,39,Single_AWK/2015/page_109.pdf-3,fail,sum_relation
+F001,40,Single_ZBH/2009/page_88.pdf-2,fail,label_not_allowed; sum_relation; page_text_restates
+F001,41,Single_AES/2002/page_117.pdf-1,fail,sum_relation
+F001,42,Single_CB/2010/page_200.pdf-2,fail,label_not_allowed; sum_relation
+F001,43,Single_LMT/2016/page_85.pdf-1,pass,
