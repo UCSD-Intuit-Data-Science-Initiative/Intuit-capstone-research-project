@@ -1,7 +1,8 @@
 # Shared written policy, authored by hand. Each spec names it (`policy.id`) and gives its own
 # `threshold` and `metric`; the build fills {threshold} (as +1.0%) and {metric} (the metric row,
 # e.g. net sales) and stores the filled policy and its sha256 in family.json.
-# Provisional, pending Dhruvi: the wording below is the F001 wording (Jiya, Nov 1-2), unchanged.
+# Provisional, pending Dhruvi: P1-P10 are the F001 wording (Jiya, Nov 1-2). P11 (new events) and
+# P12 (pro forma schedules) were added Nov 3 for the 9-version format.
 id: RNW-1
 name: Annual credit-line renewal
 rules:
@@ -15,3 +16,5 @@ rules:
   - {id: P8, text: "A documented change that does not affect the metric is recorded, and the decision stands."}
   - {id: P9, text: "Everything happens before execution."}
   - {id: P10, text: "Give findings first. Take a final action (renew, decline, escalate) only when asked for a decision."}
+  - {id: P11, text: "A new event is something that happened after the period the figures cover, such as an agreement to sell a business. It is not a correction: recorded figures stay as reported. Log it as new_event, citing a dated notice signed by an officer of the borrower. The metric uses the recorded figures, so a new event does not change this review's decision."}
+  - {id: P12, text: "When the borrower has made an acquisition, the review uses its pro forma schedule, which includes the acquired business for every year shown."}

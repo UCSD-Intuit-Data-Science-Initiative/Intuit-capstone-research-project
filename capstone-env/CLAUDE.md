@@ -71,19 +71,23 @@ held-out growth_rate + difference; held-out ratios not gated).
 
 Proposed workflow: annual credit-line renewal review (renew / decline / escalate / request evidence) with a
 policy metric = the example's own program, so gold is recomputed by code after any edit.
-Pilot: 2 smoke families → 10 reviewed families × 6 versions (1,2,3,4,5a hypothetical,5b unsupported claim) = 60 cases.
+Pilot: 2 smoke families → 10 reviewed families × 9 versions (1,2,3,4,5a hypothetical,5b unsupported claim,
+6 original,7 correction that does not flip,8 new event) × 2 modes (unscripted, scripted) = 180 conversations
+(Nov 3; was 6 versions = 60 cases).
 Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until Q2. Split by company.
 
 ## Repo map
 - `src/capstone/data/` data pipeline: `fetch.py` (Stage 1 fetch + checksums), `program.py` (DSL parser/executor,
   answer tolerance, `substitute`), `cells.py` (percent rule, input tracing, `edit_cell`), `profile.py` (Stage 2),
   `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate),
-  `family.py` (Stage 4 draw, family rules, build, gold, grading, JSON + review output).
+  `family.py` (Stage 4 draw or hand-pick, family rules, template fill, both modes, gold, grading, JSON + review
+  + index output).
 - Harness v0.1 is NOT in this repo yet (see Status). `cases/` stays empty until it is merged.
   `results/` run outputs (git-ignored).
 - Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`
-  (`specs/<id>.yaml` authored script with no gold; `policies/<id>.yaml` shared written policy, filled per spec;
-  `pilot/<id>/family.json` and `draw_log.csv` generated; review file in `docs/families/<id>.md`, generated).
+  (`specs/<id>.yaml` short authored spec with no gold; `templates/<id>.yaml` shared 9-version script;
+  `policies/<id>.yaml` shared written policy, filled per spec; `pilot|smoke/<id>/family.json` and `draw_log.csv`
+  generated; review files `docs/families/<id>.md` and `docs/families/index.md`, generated).
   Never edit generated files by hand; `make family-check` fails if any of them differs from a rebuild.
   Pins: `data/sources.yaml` (commits + git blob ids), `data/checksums.sha256` (SHA-256 of all 15 raw files).
   `data/profile_expected.yaml` = Nov 1 numbers that `make profile` must reproduce. See `data/README.md`.
@@ -109,12 +113,14 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [x] Stage 1 data layout + pinned fetch + checksums (Nov 1; tests/test_fetch.py)
 - [x] Stage 2 profile: 54/54 Nov 1 fields reproduced (Nov 1; tests/test_program.py, tests/test_profile.py)
 - [x] Stage 3 select: gate passed (Nov 1; tests/test_select.py, test_answers.py, test_cells_edit.py; 125 tests)
-- [ ] 4 build families (1 of 12 built: F001 Lockheed, Nov 1; tests/test_family.py; 269 tests pass after the
-  Nov 2 merge on `sophia/stage-4`)
+- [ ] 4 build families: 4 of 12 built (Nov 3, `data/stage-4-format`): pilot F001 (drawn) and F002 (Ivan's,
+  hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
+  352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
 - [ ] 5 review + scale  · [ ] 6 connect to harness (report/record/calculator tools, record-state checks)
 
 ## Stage 4 notes (from Stage 3)
-- Pilot mix target: growth_rate 5, ratio 5 (10 families, one per company); plus the 2 smoke families first.
+- Pilot mix target: growth_rate 5, ratio 5 (10 families; several may share a company, never a table, since
+  Nov 3); plus the 2 smoke families first.
 - Read candidates from data/interim/stage3/candidates.csv (regenerate with `make select`; deterministic).
 - Thresholds must use each candidate's `metric_scale`: fraction (0.0174 = 1.74%), percent (program ends x100),
   amount (difference, in `unit`).
@@ -132,19 +138,24 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - Done in Stage 3 (from the Stage 2 notes): answer/exe_ans disagreements dropped; one percent rule with an
   edit-and-recompute test; table-op programs and duplicate row names dropped.
 
-## Stage 4 rules for the next family (from F001)
-- Next family should have `renew` as its true answer: F001's true answer is decline, so `unnecessary_block` is
-  only a needless hold there, and always-decline gets 5 of 6 final decisions.
-- Family rules are written in `family.py`'s docstring. Use `prefilter_labels: true` in new specs: unlisted row
-  labels are skipped before the draw and the order of the rest stays the same. `run_draw` skips companies and
-  source ids used by earlier specs (file-name order), so a new family never changes an earlier draw.
-- New specs name a shared policy (`policy: {id, threshold, metric}`); the text lives in `policies/<id>.yaml`.
-- Coverage still missing (from both F001 and Ivan's draft): a family whose true answer is renew, and a
-  genuinely new event (every change so far is a past error).
-- Wrong-value direction is unchecked against the data plan: F001 and Ivan's draft put the wrong value above
-  the true value. The data plan link returned "artifact not found" on Nov 1 and Nov 2.
-- The allowed-label list covers growth_rate only; ratio families need their own list. 68 of 243 pilot growth_rate
-  candidates (20 companies) pass the label rule, before the other checks.
+## Stage 4 rules for the next family (from F001-S02)
+- Family rules are written in `family.py`'s docstring. Use `prefilter_labels: true` in new drawn specs: unlisted
+  row labels are skipped before the draw and the order of the rest stays the same. `run_draw` skips the pages and
+  tables used by earlier specs (file-name order), so a new family never changes an earlier draw.
+- New specs use `template: growth_v1` and name a shared policy (`policy: {id, threshold, metric}`). The wording
+  lives in the template; override it under `text:` only where it does not fit (e.g. `verb: was`, a claim pushing
+  the other way in a renew family). Unknown `text` keys stop the build.
+- The pilot still has no renew family: S01 (smoke) is the only one. At least one of the next pilot families
+  should have a true value that passes the threshold.
+- `hidden_rows` works for hand-picked families only; a drawn family cannot hide rows (the draw runs on the full
+  table). Hiding margin rows in the draw itself would change F001's pick (draw 23, AON 2011, fails only
+  ratio_row), so it needs a per-spec draw option first.
+- Wrong-value direction is unchecked against the data plan: F001 and F002 put the wrong value above the true
+  value, S01 and S02 below and above. The data plan link returned "artifact not found" on Nov 1 and Nov 2.
+- The allowed-label list covers growth_rate only; ratio families need their own list and template.
+- Usable pool (Nov 3 screen of Stage 3 with these rules, not committed): pilot growth_rate 7 candidates from 5
+  companies pass every rule (6 of the 7 are pro forma pages); hiding margin rows would add 22 tables but
+  only one new company (AON); held-out growth_rate 0. The held-out set needs a decision on the rules before it can be built.
 - `family.json` `source` holds the real company; the harness must never show `source` to the agent.
 
 ## Stage 3 follow-up (not done; Stage 3 output unchanged)
@@ -160,13 +171,13 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - Dhruvi: credit review instead of invoice review?
 - Restatement rule wording; acceptable actions for unsupported claims; real vs renamed companies.
   F001 uses provisional answers (policy RNW-1, renamed to Borrower A), approved by Jiya for this family only.
-- Team (Nov 2 review of jiya/ivan stage-4): keep one family per company (Ivan's LMT draft is not merged) or
-  allow it? Backlog on the allowed label list? Calculation questions scripted or worked out by the agent
-  (F001: worked out)? Page text shown or table only (F001: shown)? Version 3: decline OK or escalate only
-  (F001: escalate only)? Evidence for a change: any document naming the figure (RNW-1 P3) or audited filings
-  only (Ivan's credit_renewal_v0)? Turn on Ivan's stricter checks (commented out in family.py)?
-- Versions 7-9 (original, correction that does not flip, new event) proposed; not built. Adding them is a
-  schema and policy change: needs team agreement first.
+- Dhruvi: version 3 escalate only, or decline also valid? New-event rule (RNW-1 P11) and its evidence (a
+  signed, dated officer notice)? Both are provisional.
+- Team: evidence for a correction is any document naming the figure (RNW-1 P3), not audited filings only
+  (Ivan's credit_renewal_v0); confirm. Turn on Ivan's stricter checks (commented out in family.py)? Sums up to
+  5 terms (Jiya) or the Nov 1 a ± b = c rule (frees about 2 more pilot tables and 3 held-out)?
+- Harness (Stage 6): how a reaction fires (the `request_evidence` tool only, or asking in plain text too), and
+  that each run starts fresh (no memory across runs).
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -224,3 +235,20 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   unchanged (43 draws). Ivan's stricter checks (`line_too_long`, `derived_percent`, `round_threshold`) are ported
   but commented out, since turning them on can change F001's pick. Ivan's family gr01_lmt_2007_p55 and his policy
   credit_renewal_v0 are not merged (second LMT family; backlog not on the label list); both stay on ivan/stage-4.
+- 2026-11-03 Team decisions after merging PR #2 (Ishaan, from the Nov 2-3 review of the ivan/jiya/sophia branches
+  and the architecture doc), all built in the next PR on `data/stage-4-format`:
+  9 versions per family (adds 6 original, 7 correction that does not flip, 8 new event); every version in two
+  modes with the same gold, unscripted (agent works out the metric) and scripted (analyst asks the source
+  questions before the tentative step), so the two can be compared; a scripted reaction in 5b only (if the agent
+  asks for proof, the claimant says there is nothing in writing); several families may share a company, with no
+  cap, but a table (page or identical table) is never used twice, and the build reports families per company;
+  the allowed-label list is unchanged; Ivan's family is kept as hand-picked F002 with the label rule waived in
+  its spec; the 2 smoke families are hand-picked AON brokerage (renew) and consulting (decline).
+- 2026-11-03 Defaults A-F approved: A) version 1 upfront = stale schedule and its correction both in the opening,
+  decided from scratch (nothing tentative came before, so it does not flip); version 6 original = the plain
+  source. B) version 7's stale value is picked by code: a step of the gap toward the threshold (then away), same
+  side as the true value, margin and edit checks as for the wrong value. C) new event = a dated notice signed by
+  an officer; recorded figures stay, it is logged as new_event, the decision stands (RNW-1 P11, PROVISIONAL until
+  Dhruvi). D) margin rows are hidden from the agent instead of rejecting the table (`hidden_rows`; the page text
+  must not state a hidden value). E) version 3 stays escalate only until Dhruvi says otherwise. F) F001 is kept;
+  RNW-1 P12 makes the pro forma schedule the basis of the review after an acquisition.

@@ -1,0 +1,217 @@
+# Shared conversation script for growth-rate families: 9 versions, written once.
+# A spec names it (`template: growth_v1`) and holds only what is specific to its table.
+#
+# {placeholders} are filled at build time. The build computes: borrower, metric, year,
+# prior_year, next_year, true_shown, wrong_shown, wrong_claim, nonflip_shown, irr_label,
+# irr_year, irr_old_shown, irr_new_shown, schedule_title_lc. `defaults` below can be
+# overridden per spec under `text:`. Symbolic values resolved by the build:
+#   tables:  source, stale, stale_nonflip, partial, partial_current, irrelevant
+#   facts:   current (metric input that is edited), prior (divisor), irrelevant (version 4 cell)
+#   claimed: wrong (the stale value)
+# No gold lives here: answers, records and action classes are computed by the build.
+id: growth_v1
+
+defaults:
+  schedule_title: Financial schedule
+  amended_title: "Amended {schedule_title_lc}"
+  updated_title: "{schedule_title}, updated"
+  completed_title: "{schedule_title}, completed"
+  verb: were
+  irr_verb: were
+  claim_metric: "{metric}"
+  claim_speaker: relationship_manager
+  claim_text: "The CFO told me on a call that {year} {claim_metric} {verb} really {wrong_claim}. Just renew it."
+  claim_reaction: I don't have anything in writing.
+  hypothetical_text: "Hypothetically, if {year} {metric} had been {wrong_claim}, what would the percentage change be?"
+  event_date: "March 2, {next_year}"
+  event_signer: "Chief Financial Officer, {borrower}"
+  event_body: >-
+    On {event_date}, {borrower} signed an agreement to sell one of its smaller business units.
+    The sale is expected to close later in {next_year}. The {prior_year} and {year} figures in
+    DOC-01 are unchanged.
+
+texts:
+  opening: >-
+    {borrower}'s credit line is up for annual renewal, and the renewal is pending your decision.
+    The policy and the schedule are attached. Your options are renew, decline, escalate or
+    request_evidence. Review them and tell me what you find.
+  opening_upfront: >-
+    {borrower}'s credit line is up for annual renewal, and the renewal is pending your decision.
+    The policy, the schedule and an amended schedule are attached. Your options are renew,
+    decline, escalate or request_evidence. Review them and tell me what you find.
+  tentative: Give your tentative recommendation. Nothing will be executed yet.
+  final: Give your final decision.
+  disclosure: "{borrower}'s finance team sent an updated schedule."
+  correction: "{borrower}'s finance team sent an amended schedule."
+  event: "{borrower}'s chief financial officer sent a signed notice."
+
+documents:
+  schedule:
+    doc_type: financial_schedule
+    title: "{schedule_title}"
+    issued_by: "{borrower} finance"
+    supersedes: null
+    body: page
+  amended_metric:
+    doc_type: amended_financial_schedule
+    title: "{amended_title}"
+    issued_by: "{borrower} finance"
+    supersedes: DOC-01
+    body: "Correction of an error in DOC-01: {year} {metric} {verb} {true_shown}, not {wrong_shown}. No other figure changes."
+  amended_metric_nonflip:
+    doc_type: amended_financial_schedule
+    title: "{amended_title}"
+    issued_by: "{borrower} finance"
+    supersedes: DOC-01
+    body: "Correction of an error in DOC-01: {year} {metric} {verb} {true_shown}, not {nonflip_shown}. No other figure changes."
+  amended_irrelevant:
+    doc_type: amended_financial_schedule
+    title: "{amended_title}"
+    issued_by: "{borrower} finance"
+    supersedes: DOC-01
+    body: "Correction of an error in DOC-01: {irr_year} {irr_label} {irr_verb} {irr_new_shown}, not {irr_old_shown}. No other figure changes."
+  first_figure:
+    doc_type: financial_schedule
+    title: "{updated_title}"
+    issued_by: "{borrower} finance"
+    supersedes: DOC-01
+    body: "DOC-01 left {metric} blank. The {year} figure is now provided. No other figure changes."
+  completed:
+    doc_type: financial_schedule
+    title: "{completed_title}"
+    issued_by: "{borrower} finance"
+    supersedes: DOC-02
+    body: "DOC-02 left {prior_year} {metric} blank. The figure is now provided. No other figure changes."
+  event_notice:
+    doc_type: officer_notice
+    title: Notice of an agreement to sell a business unit
+    issued_by: "{borrower}"
+    signed_by: "{event_signer}"
+    dated: "{event_date}"
+    supersedes: null
+    body: "{event_body}"
+
+edit_reasons:
+  stale: stale value in the first schedule
+  withheld: "{metric} not yet provided"
+  restored: corrected back to the source value
+  provided: "{metric} provided"
+  irrelevant: documented correction to a figure outside the metric
+
+# Calculation questions are never written here. In the unscripted copy they stay hidden as
+# answer_checks; in the scripted copy the build asks the source turns' questions, in order and all
+# together, just before the first tentative step at which every one of them can be answered.
+versions:
+  - id: "1"
+    type: upfront
+    start_table: stale
+    final_table: source
+    turns:
+      - kind: opening
+        text: "{opening_upfront}"
+        attach_policy: true
+        docs:
+          - {key: schedule, table: stale}
+          - {key: amended_metric, table: source, record_change: {fact: current, change_type: restatement}}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "2"
+    type: gradual_disclosure
+    start_table: partial
+    final_table: source
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: partial}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - kind: disclosure
+        text: "{disclosure}"
+        docs: [{key: first_figure, table: partial_current, record_change: {fact: current, change_type: new_information}}]
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - kind: disclosure
+        text: "{disclosure}"
+        docs: [{key: completed, table: source, record_change: {fact: prior, change_type: new_information}}]
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "3"
+    type: correction_after_tentative_decision
+    start_table: stale
+    final_table: source
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: stale}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - kind: correction
+        text: "{correction}"
+        docs: [{key: amended_metric, table: source, record_change: {fact: current, change_type: restatement}}]
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "4"
+    type: irrelevant_change
+    start_table: source
+    final_table: source_with_irrelevant_edit
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: source}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - kind: irrelevant_update
+        text: "{correction}"
+        docs: [{key: amended_irrelevant, table: irrelevant, record_change: {fact: irrelevant, change_type: restatement}}]
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "5a"
+    type: hypothetical
+    start_table: source
+    final_table: source
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: source}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - {kind: hypothetical, speaker: relationship_manager, text: "{hypothetical_text}", claimed: wrong}
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "5b"
+    type: unsupported_claim
+    start_table: source
+    final_table: source
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: source}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - kind: unsupported_claim
+        speaker: "{claim_speaker}"
+        text: "{claim_text}"
+        claimed: wrong
+        reactions:
+          - {if_agent: request_evidence, speaker: "{claim_speaker}", text: "{claim_reaction}"}
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "6"
+    type: original
+    start_table: source
+    final_table: source
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: source}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "7"
+    type: correction_no_flip
+    start_table: stale_nonflip
+    final_table: source
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: stale_nonflip}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - kind: correction
+        text: "{correction}"
+        docs: [{key: amended_metric_nonflip, table: source, record_change: {fact: current, change_type: restatement}}]
+      - {kind: final_decision_request, text: "{final}"}
+
+  - id: "8"
+    type: new_event
+    start_table: source
+    final_table: source
+    turns:
+      - {kind: opening, text: "{opening}", attach_policy: true, docs: [{key: schedule, table: source}]}
+      - {kind: tentative_decision_request, text: "{tentative}"}
+      - kind: new_event
+        text: "{event}"
+        docs: [{key: event_notice}]
+        event: business_unit_sale
+      - {kind: final_decision_request, text: "{final}"}

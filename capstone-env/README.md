@@ -48,7 +48,7 @@ make test           # run pytest suite
 | `make data-verify` | Offline check of `data/raw` against `data/checksums.sha256` |
 | `make profile` | Profile the data and compare to the Nov 1 numbers |
 | `make select` | Select candidates, split by company, check the gate |
-| `make family` | Stage 4: draw and build every family in `data/families/specs/` (see data/README.md) |
+| `make family` | Stage 4: build every family in `data/families/specs/` (9 versions × 2 modes each; see data/README.md) |
 | `make family-check` | Rebuild families in memory; fail if any generated file differs (writes nothing) |
 
 ## Project layout

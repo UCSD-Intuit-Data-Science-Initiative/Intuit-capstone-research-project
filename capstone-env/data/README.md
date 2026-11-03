@@ -32,25 +32,41 @@ that end in a `difference` metric.
 ## Build families (Stage 4)
 
 ```bash
-make family        # draw, build every specs/*.yaml, stop on any broken family rule
+make family        # build every specs/*.yaml, stop on any broken family rule
 make family-check  # rebuild in memory, fail if a generated file differs; writes nothing
 ```
 
+Each family is one source table played as 9 versions (1 upfront, 2 gradual disclosure, 3 correction
+after a tentative decision, 4 irrelevant change, 5a hypothetical, 5b unsupported claim, 6 original,
+7 correction that does not flip, 8 new event), each in two modes with the same gold: `unscripted`
+(the agent works out the metric) and `scripted` (the analyst asks the source questions, in order,
+before the first tentative step at which all of them can be answered).
+So each family is 18 conversations.
+
 | Path | What | Written by |
 |---|---|---|
-| `families/specs/<id>.yaml` | Authored script: source, edits, documents, turns; names its policy, threshold and metric (no gold) | Hand |
+| `families/specs/<id>.yaml` | Short spec: source, selection, edits, facts, threshold, names to hide, rows to hide (no gold) | Hand |
+| `families/templates/<id>.yaml` | Shared script: the 9 versions, documents and wording, with `{placeholders}` | Hand |
 | `families/policies/<policy>.yaml` | Shared written policy; `{threshold}` and `{metric}` are filled per family | Hand |
-| `families/pilot/<id>/family.json` | What the harness reads: tables, turns, gold, spec and policy sha256 | `make family` |
-| `docs/families/<id>.md` | Review file: summary table, then every version | `make family` |
-| `families/draw_log.csv` | Every draw: id, pass/fail, reason | `make family` |
+| `families/<set>/<id>/family.json` | What the harness reads (`set` = `pilot` or `smoke`): tables, both conversations, gold, sha256 of spec, template and policy | `make family` |
+| `docs/families/<id>.md` | Review file: summary table, then every version (unscripted turns, scripted questions, gold) | `make family` |
+| `docs/families/index.md` | Every family, and how many each company contributes | `make family` |
+| `families/draw_log.csv` | Every draw: id, pass/fail, reason (drawn families only) | `make family` |
 
 Generated files are byte-identical on rerun; never edit them by hand. The family rules are listed in
-`src/capstone/data/family.py`. Specs build in file-name order, and each draw skips companies and
-source ids used by earlier specs (one family per company).
+`src/capstone/data/family.py`. Specs build in file-name order. Several families may share a company,
+but a table is never used twice: each draw skips the pages and tables of earlier specs.
 
-To add a family: copy `specs/F001.yaml` to the next id, set `prefilter_labels: true`, run
+A family is either drawn (`selection: {method: draw, prefilter_labels: true}`) or hand-picked
+(`selection: {method: hand_picked, reason: ..., waived_checks: {...}}`). A hand-picked family runs
+the same rules; any rule it breaks must be waived with a reason, and an unneeded waiver stops the
+build. `hidden_rows` hides a row (such as a margin row) from the agent; the rules then run on the
+table the agent sees.
+
+To add a drawn family: copy `specs/F001.yaml` to the next id, set `prefilter_labels: true`, run
 `make family` (it stops and names the candidate the draw picked), set `source_id` to that pick, then
-author the edits, threshold, documents and renames for its table and rebuild. Read the review file.
+set `facts`, `wrong_edit`, `irrelevant_edit`, the threshold and the renames for its table, and
+rebuild. Change `text:` only where the template wording does not fit. Read the review file.
 
 ## Get the data
 
