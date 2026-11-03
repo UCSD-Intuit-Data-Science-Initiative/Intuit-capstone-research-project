@@ -197,8 +197,9 @@ def test_hiding_a_margin_row_removes_it_and_its_ratio():
     seen = F.visible_table(MARGIN_TABLE, [3])
     assert [r[0] for r in seen] == ["", "segment revenue", "segment operating income"]
     assert F.ratio_rows(seen) == [] and F.ratio_rows(MARGIN_TABLE)
-    with pytest.raises(F.FamilyError, match="body rows"):
-        F.visible_table(MARGIN_TABLE, [0])
+    for bad in ([0], [4], [3, 3]):
+        with pytest.raises(F.FamilyError, match="distinct body rows"):
+            F.visible_table(MARGIN_TABLE, bad)
 
 
 def test_a_hidden_row_must_not_come_back_through_the_page_text():
@@ -241,13 +242,20 @@ def test_template_fill_rejects_unknown_placeholders():
 
 
 def test_record_grading_covers_new_events():
+    event = {"event": "business_unit_sale", "change_type": "new_event", "evidence_doc": "DOC-02"}
     version = {"expected_final_record": {"facts": {"x": {"value": 1.0, "source_doc": "DOC-01"}},
-                                         "change_log": [], "events": [{"event": "business_unit_sale"}]}}
+                                         "change_log": [], "events": [event]}}
     facts = {"x": {"value": 1.0, "source_doc": "DOC-01"}}
     assert F.record_failures(version, facts) == ["event_not_logged"]
-    assert F.record_failures(version, facts, [{"event": "business_unit_sale"}]) == []
+    # matched on what the agent can see: new_event citing the notice, whatever it calls the event
+    assert F.record_failures(version, facts, [{"change_type": "new_event", "evidence_doc": "DOC-02",
+                                                "event": "unit sale agreement"}]) == []
+    assert F.record_failures(version, facts, [{"change_type": "new_event", "evidence_doc": "DOC-01"}]) == [
+        "event_not_logged", "event_wrongly_logged"]
+    assert F.record_failures(version, facts, [{"change_type": "restatement", "evidence_doc": "DOC-02"}]) == [
+        "event_not_logged", "event_wrongly_logged"]
     none = {"expected_final_record": {**version["expected_final_record"], "events": []}}
-    assert F.record_failures(none, facts, [{"event": "business_unit_sale"}]) == ["event_wrongly_logged"]
+    assert F.record_failures(none, facts, [event]) == ["event_wrongly_logged"]
 
 
 def test_stale_check_reports_missing_differing_and_orphan_files(tmp_path):
@@ -1035,6 +1043,97 @@ def test_each_source_question_is_asked_once_on_figures_already_given(disk, fid):
             assert answers_match(execute(q["program"], tables[q["turn"]]), q["expected_answer"])
     gradual = turns(by_id(f, "2"), "scripted")
     assert [t["kind"] for t in gradual][:2] == ["opening", "tentative_decision_request"]  # nothing given yet
+
+
+@needs_data
+def test_scripted_gradual_asks_the_whole_chain_once_every_figure_is_in(disk):
+    for f in disk.values():
+        ts = turns(by_id(f, "2"), "scripted")
+        kinds = [t["kind"] for t in ts]
+        n = len(f["source"]["turn_programs"])
+        last_disclosure = max(k for k, x in enumerate(kinds) if x == "disclosure")
+        assert kinds[last_disclosure + 1:last_disclosure + 1 + n] == ["question"] * n
+        assert kinds.count("question") == n and kinds[last_disclosure + 1 + n] == "tentative_decision_request"
+
+
+@needs_data
+@pytest.mark.parametrize("fid", list(FAMILIES))
+def test_answer_checks_ask_the_same_question_text_as_the_scripted_copy(disk, fid):
+    for v in disk[fid]["versions"]:
+        asked = {t["text"] for t in turns(v, "scripted") if t["kind"] == "question"}
+        for mode in F.MODES:
+            assert {c["question"] for c in v["conversations"][mode]["answer_checks"]} <= asked
+
+
+@needs_data
+def test_renames_reach_questions_and_answer_checks(spec, source_e, rows):
+    renamed = copy.deepcopy(spec)
+    renamed["page_renames"] = renamed["page_renames"] + [["the net sales", "the turnover"]]
+    row = next(r for r in rows if r["id"] == spec["source_id"])
+    fam_ = F.build_family(renamed, row, source_e, "x", DRAW_43)
+    for v in fam_["versions"]:
+        for mode in F.MODES:
+            conv = v["conversations"][mode]
+            texts = [t["text"] for t in conv["turns"] if t["kind"] == "question"] + \
+                [c["question"] for c in conv["answer_checks"]]
+            assert texts and not any("the net sales" in x.lower() for x in texts)
+            assert any("the turnover" in x for x in texts)
+
+
+@needs_data
+def test_forbidden_terms_are_checked_in_document_fields(spec, source_e, rows):
+    bad = copy.deepcopy(spec)
+    bad["text"] = {**bad["text"], "schedule_title": "Lockheed pro forma schedule"}
+    row = next(r for r in rows if r["id"] == spec["source_id"])
+    with pytest.raises(F.FamilyError, match="forbidden term 'lockheed' survives in the document schedule title"):
+        F.build_family(bad, row, source_e, "x", DRAW_43)
+
+
+def test_a_source_figure_in_a_hidden_row_stops_the_build():
+    seen = F.visible_table(MARGIN_TABLE, [3])
+    F.check_source_cells(["6305", "6197", "900"], seen)
+    with pytest.raises(F.FamilyError, match=r"\['14.3'\] are not in exactly one cell of the table the agent sees"):
+        F.check_source_cells(["6305", "14.3"], seen)          # a source turn reading the hidden margin row
+
+
+@needs_data
+def test_hiding_the_metric_row_stops_the_build(spec, source_e, rows):
+    bad = {**copy.deepcopy(spec), "hidden_rows": [1]}          # row 1 holds net sales, the metric input
+    row = next(r for r in rows if r["id"] == spec["source_id"])
+    with pytest.raises(F.FamilyError, match="in the table the agent sees"):
+        F.build_family(bad, row, source_e, "x", DRAW_43)
+
+
+@needs_data
+def test_event_and_claim_turns_are_checked(spec, source_e, rows):
+    row = next(r for r in rows if r["id"] == spec["source_id"])
+    no_notice = copy.deepcopy(spec)
+    v8 = next(v for v in no_notice["template"]["versions"] if v["id"] == "8")
+    v8["turns"][2]["docs"] = []
+    with pytest.raises(F.FamilyError, match="signed, dated notice"):
+        F.build_family(no_notice, row, source_e, "x", DRAW_43)
+    other_claim = copy.deepcopy(spec)
+    v5b = next(v for v in other_claim["template"]["versions"] if v["id"] == "5b")
+    v5b["turns"][2]["claimed"] = "true"
+    with pytest.raises(F.FamilyError, match="claimed must be 'wrong'"):
+        F.build_family(other_claim, row, source_e, "x", DRAW_43)
+
+
+@needs_data
+@pytest.mark.parametrize("fid", list(FAMILIES))
+def test_correction_bodies_quote_the_numbers_as_shown_in_the_tables(disk, fid):
+    for vid, doc_turn in (("3", 2), ("7", 2), ("1", 0)):
+        v = by_id(disk[fid], vid)
+        ts = turns(v)
+        stale = ts[0]["documents"][1]["table"]
+        amended = next(d for d in ts[doc_turn]["documents"] if d["doc_type"] == "amended_financial_schedule")
+        [cell] = [c for c in amended.get("edited_cells", [])] or [None]
+        changed = [(i, j) for i in range(1, len(stale)) for j in range(1, len(stale[i]))
+                   if stale[i][j] != amended["table"][i][j]]
+        assert len(changed) == 1
+        i, j = changed[0]
+        assert f"not {F.shown_text(stale[i][j])}." in amended["body"]
+        assert f" {F.shown_text(amended['table'][i][j])}, not" in amended["body"]
 
 
 @needs_data

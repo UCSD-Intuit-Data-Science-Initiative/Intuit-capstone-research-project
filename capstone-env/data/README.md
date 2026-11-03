@@ -39,7 +39,8 @@ make family-check  # rebuild in memory, fail if a generated file differs; writes
 Each family is one source table played as 9 versions (1 upfront, 2 gradual disclosure, 3 correction
 after a tentative decision, 4 irrelevant change, 5a hypothetical, 5b unsupported claim, 6 original,
 7 correction that does not flip, 8 new event), each in two modes with the same gold: `unscripted`
-(the agent works out the metric) and `scripted` (the analyst asks the source questions first).
+(the agent works out the metric) and `scripted` (the analyst asks the source questions, in order,
+before the first tentative step at which all of them can be answered).
 So each family is 18 conversations.
 
 | Path | What | Written by |

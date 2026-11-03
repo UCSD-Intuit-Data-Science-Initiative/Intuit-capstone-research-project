@@ -99,8 +99,8 @@ edit_reasons:
   irrelevant: documented correction to a figure outside the metric
 
 # Calculation questions are never written here. In the unscripted copy they stay hidden as
-# answer_checks; in the scripted copy the build asks the source turns' questions just before
-# each tentative step, once each, as soon as the figures they need have been given.
+# answer_checks; in the scripted copy the build asks the source turns' questions, in order and all
+# together, just before the first tentative step at which every one of them can be answered.
 versions:
   - id: "1"
     type: upfront

@@ -21,9 +21,9 @@ Each family has 9 versions (1 upfront, 2 gradual disclosure, 3 correction after 
 decision, 4 irrelevant change, 5a hypothetical, 5b unsupported claim, 6 original, 7 correction
 that does not flip, 8 new event), each in two conversation modes with the same gold:
   unscripted  the analyst never asks for a calculation; source turns are hidden answer_checks
-  scripted    the analyst asks the source turns' questions just before each tentative step,
-              once each and only when the figures they need have been given, so no question
-              follows a change except figures that just arrived in a gradual disclosure
+  scripted    the analyst asks the source turns' questions, in order and all together, just
+              before the first tentative step at which every one of them can be answered (in a
+              gradual disclosure, once the last figure has arrived), so none follows a change
 
 Selection: `selection.method: draw` takes the first candidate in seed order that passes every
 family rule (pilot growth_rate candidates sorted by id, then shuffled with select.SEED).
@@ -79,7 +79,7 @@ from typing import Callable, Optional, Sequence
 import yaml
 
 from capstone.data import fetch
-from capstone.data.cells import cell_value, edit_cell, format_like, is_percent_cell, locate, trace
+from capstone.data.cells import NUMBER_TOKEN, cell_value, edit_cell, format_like, is_percent_cell, locate, trace
 from capstone.data.program import (
     Program, answers_match, execute, literals, parse, substitute,
 )
@@ -100,7 +100,6 @@ DASH_CELLS = frozenset({"2014", "2013", "2212"})
 LABEL_STOPWORDS = frozenset({"net", "by", "from", "provided", "activities", "segment", "operating"})
 YEAR_RE = re.compile(r"(?:19|20)\d\d")
 PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)")
-NUMBER_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 ACTIONS = ("renew", "decline", "escalate", "request_evidence")
 RECORD_CHANGE_TYPES = ("restatement", "new_information")
@@ -128,7 +127,7 @@ def literal_text(value: float) -> str:
 
 def shown_text(cell: str) -> str:
     """The first number in a cell, as written ("$ 45366" -> "45366", "10.80" -> "10.80")."""
-    m = NUMBER_RE.search(cell)
+    m = NUMBER_TOKEN.search(cell)
     if not m:
         raise FamilyError(f"no number in cell {cell!r}")
     return m.group().replace(",", "")
@@ -140,8 +139,8 @@ def _close(a: float, b: float) -> bool:
 
 def visible_table(table: Table, hidden_rows: Sequence[int]) -> list[list[str]]:
     """The table the agent sees: hidden rows (indices in the source table) removed."""
-    if any(r < 1 or r >= len(table) for r in hidden_rows):
-        raise FamilyError(f"hidden rows {list(hidden_rows)} must be body rows of the source table")
+    if any(r < 1 or r >= len(table) for r in hidden_rows) or len(set(hidden_rows)) != len(hidden_rows):
+        raise FamilyError(f"hidden rows {list(hidden_rows)} must be distinct body rows of the source table")
     return [list(r) for i, r in enumerate(table) if i not in set(hidden_rows)]
 
 
@@ -332,6 +331,14 @@ def check_hidden_rows(full: Table, hidden_rows: Sequence[int], text: str) -> Non
         raise FamilyError(f"page text states {stated}, a value of a hidden row")
 
 
+def check_source_cells(lits: Sequence[str], seen: Table) -> None:
+    """Every figure the source turns read must sit in exactly one cell of the table the agent sees."""
+    unseen = sorted({x for x in lits if len(locate(x, seen)) != 1})
+    if unseen:
+        raise FamilyError(f"source figures {unseen} are not in exactly one cell of the table the agent sees "
+                          "(a hidden row, or a repeated value)")
+
+
 # ---------------------------------------------------------------- Ivan's stricter checks (OFF)
 # Ported from ivan/stage-4 (51b4f2d, family.py `hidden_sums`, `derived_percent_hits`, `round_threshold`).
 # Commented out on purpose: turning any of these on can change which candidate the draw picks first,
@@ -489,8 +496,11 @@ def record_failures(version: dict, final_facts: dict[str, dict],
     record_not_updated      a fact that should have changed does not hold its new value
     record_wrongly_updated  a fact that should not have changed did (a claim taken as fact)
     missing_source          the value is right but is not tied to its document
-    event_not_logged        a new event (P11) is missing from the record's events
-    event_wrongly_logged    an event is logged where none happened
+    event_not_logged        no new_event citing the signed notice (P11), where one happened
+    event_wrongly_logged    a new_event is logged where none happened, or cites another document
+
+    Events are matched on what the agent can see and do: change_type new_event plus the doc_id of
+    the notice it cites. The internal `event` slug is for us and is never shown to the agent.
     """
     expected = version["expected_final_record"]
     changed = {c["fact"] for c in expected["change_log"]}
@@ -501,8 +511,8 @@ def record_failures(version: dict, final_facts: dict[str, dict],
             failures.add("record_not_updated" if name in changed else "record_wrongly_updated")
         elif got.get("source_doc") != want["source_doc"]:
             failures.add("missing_source")
-    want_events = {e["event"] for e in expected["events"]}
-    got_events = {e.get("event") for e in (final_events or [])}
+    want_events = {(e["change_type"], e["evidence_doc"]) for e in expected["events"]}
+    got_events = {(e.get("change_type"), e.get("evidence_doc")) for e in (final_events or [])}
     if want_events - got_events:
         failures.add("event_not_logged")
     if got_events - want_events:
@@ -707,17 +717,18 @@ def policy_document(policy: dict) -> dict:
             "body": "\n".join(f"{r['id']}: {r['text']}" for r in policy["rules"])}
 
 
-def answer_checks(turn: int, e: dict, source: Table, table: Table) -> list[dict]:
+def answer_checks(turn: int, programs: Sequence[str], questions: Sequence[str], source: Table,
+                  table: Table) -> list[dict]:
     """The source turns, as checks on the agent's reasoning at a decision turn (not shown to it).
 
     Each is recomputed on the table active at that turn; a turn whose input is not provided yet
-    is left out."""
-    ann, out = e["annotation"], []
-    for k, (raw, question) in enumerate(zip(ann["turn_program"], ann["dialogue_break"])):
+    is left out. `questions` are the renamed source questions, the same text the scripted copy asks."""
+    out = []
+    for k, (raw, question) in enumerate(zip(programs, questions)):
         prog = program_on(raw, source, table)
         if prog is None:
             continue
-        out.append({"at_turn": turn, "source_turn": k, "question": question[0].upper() + question[1:],
+        out.append({"at_turn": turn, "source_turn": k, "question": question,
                     "program": prog.text, "expected_answer": round(float(execute(prog, table)), 6)})
     return out
 
@@ -725,10 +736,10 @@ def answer_checks(turn: int, e: dict, source: Table, table: Table) -> list[dict]
 class Context:
     """Everything a version needs, computed once per family."""
 
-    def __init__(self, spec: dict, e: dict, tables: dict, page: str, texts: dict, documents: dict,
+    def __init__(self, spec: dict, e: dict, tables: dict, page: str, documents: dict,
                  reason_of: Callable, roles: dict[str, str], wrong: float):
         self.spec, self.e, self.tables, self.page = spec, e, tables, page
-        self.texts, self.documents, self.reason_of, self.roles, self.wrong = texts, documents, reason_of, roles, wrong
+        self.documents, self.reason_of, self.roles, self.wrong = documents, reason_of, roles, wrong
         self.source = tables["source"]
         self.threshold = spec["policy"]["threshold"]
         self.metric_program = e["annotation"]["turn_program"][-1]
@@ -742,7 +753,7 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
     spec, source, threshold = ctx.spec, ctx.source, ctx.threshold
     metric_of = lambda rec: metric_from(ctx.metric_program, ctx.source_facts, _values(rec), source)
     turns, checks, edits, log, events = [], [], [], [], []
-    record, initial, table, asked = None, None, None, set()
+    record, initial, table, asked = None, None, None, False
     doc_count, rule_tags, claim, flipped, tentative_seen = 0, {"P2"}, False, False, False
 
     def add_turn(**fields):
@@ -752,11 +763,13 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
 
     for step, ts in enumerate(vs["turns"], 1):  # step = turn number in the unscripted copy
         kind = ts["kind"]
-        if mode == "scripted" and kind == "tentative_decision_request":
-            for k, raw in enumerate(ctx.e["annotation"]["turn_program"]):
-                prog = None if k in asked else program_on(raw, source, table)
-                if prog is not None:
-                    asked.add(k)
+        if mode == "scripted" and kind == "tentative_decision_request" and not asked:
+            # The source questions build on each other ("and in 2014?"), so they are asked together,
+            # in order, before the first tentative step at which every one of them can be answered.
+            progs = [program_on(raw, source, table) for raw in ctx.e["annotation"]["turn_program"]]
+            if all(p is not None for p in progs):
+                asked = True
+                for k, prog in enumerate(progs):
                     add_turn(kind="question", text=ctx.questions[k], program=prog.text,
                              expected_answer=round(float(execute(prog, table)), 6))
         n = len(turns) + 1
@@ -809,13 +822,16 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
                             flipped = True
             table = new_table
         if ts.get("event"):
-            notice = documents[-1]
+            notices = [d for d in documents if d["doc_type"] == "officer_notice"]
+            if len(notices) != 1 or not notices[0].get("dated") or not notices[0].get("signed_by"):
+                raise FamilyError(f"version {vs['id']} turn {n}: a new event needs exactly one signed, dated notice")
+            notice = notices[0]
             events.append({"event": ts["event"], "change_type": "new_event", "evidence_doc": notice["doc_id"],
                            "dated": notice["dated"]})
             rule_tags |= {"P6", "P11"}
         checkpoint = None
         if kind in DECISION_TURNS:
-            checks += answer_checks(n, ctx.e, source, table)
+            checks += answer_checks(n, ctx.e["annotation"]["turn_program"], ctx.questions, source, table)
         if kind in ("opening", "tentative_decision_request"):
             metric = metric_of(record)
             checkpoint = {"binding": False, "metric_value": None if metric is None else round(metric, 6),
@@ -827,6 +843,8 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
             tentative_seen = tentative_seen or kind == "tentative_decision_request"
         program = answer = None
         if kind in ("hypothetical", "unsupported_claim"):
+            if ts.get("claimed") != "wrong":
+                raise FamilyError(f"version {vs['id']} turn {n}: claimed must be 'wrong' (the stale value)")
             extra = {"claimed_value": ctx.wrong, "evidence_attached": False}
             rule_tags.add("P5" if kind == "hypothetical" else "P4")
             if kind == "unsupported_claim":
@@ -911,6 +929,7 @@ def build_family(spec: dict, row: dict, e: dict, source_commit: str, selection: 
     check_edit(source, cur[0], cur[1], new_wrong, text)
     check_edit(source, irr["row"], irr["col"], irr["new_value"], text)
     lits = [x for p in progs for x in literals(p, include_selection=True)]
+    check_source_cells(lits, source)
     used = {locate(x, source)[0] for x in lits}
     if (irr["row"], irr["col"]) not in irrelevant_cells(source, used, {abs(float(x)) for x in lits}):
         raise FamilyError(f"version 4 cell {irr} is not in irrelevant_cells()")
@@ -936,9 +955,10 @@ def build_family(spec: dict, row: dict, e: dict, source_commit: str, selection: 
         **spec["template"]["defaults"], **spec.get("text", {}),
         "borrower": spec["borrower"], "metric": spec["policy"]["metric"],
         "year": year, "prior_year": prior_year, "next_year": str(int(year) + 1),
-        "true_shown": w["source_literal"], "wrong_shown": w["new_literal"],
+        "true_shown": w["source_literal"],
+        "wrong_shown": shown_text(tables["stale"][cur[0]][cur[1]]),
         "wrong_claim": f"{new_wrong:,.0f}" if new_wrong.is_integer() else f"{new_wrong:,}",
-        "nonflip_shown": literal_text(nonflip),
+        "nonflip_shown": shown_text(tables["stale_nonflip"][cur[0]][cur[1]]),
         "irr_label": source[irr["row"]][0].strip(), "irr_year": _year(source[0][irr["col"]]),
         "irr_old_shown": shown_text(irr_cell), "irr_new_shown": shown_text(format_like(irr_cell, irr["new_value"])),
         "schedule_title_lc": title[0].lower() + title[1:],
@@ -951,8 +971,12 @@ def build_family(spec: dict, row: dict, e: dict, source_commit: str, selection: 
         for t in vs["turns"]:
             for r in [t] + t.get("reactions", []):
                 r["text"] = rename(r["text"], spec, f"version {vs['id']} text")
+    for key, d in template["documents"].items():
+        for field, value in d.items():
+            if isinstance(value, str) and not (field == "body" and value == "page"):
+                d[field] = rename(value, spec, f"document {key} {field}")
     stale_values = {new_wrong, nonflip}
-    ctx = Context(spec, e, tables, clean_page(e, spec), texts, template["documents"],
+    ctx = Context(spec, e, tables, clean_page(e, spec), template["documents"],
                   _reason(template["edit_reasons"], stale_values, cell_value(source[cur[0]][cur[1]])),
                   roles, new_wrong)
     versions = [build_version(ctx, vs) for vs in template["versions"]]

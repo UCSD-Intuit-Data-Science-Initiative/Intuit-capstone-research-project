@@ -1655,18 +1655,6 @@
             {
               "turn": 4,
               "speaker": "analyst",
-              "kind": "question",
-              "text": "What was the net sales in 2015?",
-              "documents": [],
-              "program": "45366",
-              "expected_answer": 45366.0,
-              "record_change": null,
-              "checkpoint": null,
-              "reactions": []
-            },
-            {
-              "turn": 5,
-              "speaker": "analyst",
               "kind": "tentative_decision_request",
               "text": "Give your tentative recommendation. Nothing will be executed yet.",
               "documents": [],
@@ -1687,7 +1675,7 @@
               "reactions": []
             },
             {
-              "turn": 6,
+              "turn": 5,
               "speaker": "analyst",
               "kind": "disclosure",
               "text": "Borrower A's finance team sent an updated schedule.",
@@ -1738,6 +1726,18 @@
                 "change_type": "new_information",
                 "evidence_doc": "DOC-03"
               },
+              "checkpoint": null,
+              "reactions": []
+            },
+            {
+              "turn": 6,
+              "speaker": "analyst",
+              "kind": "question",
+              "text": "What was the net sales in 2015?",
+              "documents": [],
+              "program": "45366",
+              "expected_answer": 45366.0,
+              "record_change": null,
               "checkpoint": null,
               "reactions": []
             },
@@ -1826,7 +1826,7 @@
           ],
           "answer_checks": [
             {
-              "at_turn": 5,
+              "at_turn": 4,
               "source_turn": 0,
               "question": "What was the net sales in 2015?",
               "program": "45366",

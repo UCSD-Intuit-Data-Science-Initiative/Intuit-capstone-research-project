@@ -1470,18 +1470,6 @@
             {
               "turn": 4,
               "speaker": "analyst",
-              "kind": "question",
-              "text": "What was the total of risk and insurance brokerage services segment revenue in 2009?",
-              "documents": [],
-              "program": "6305",
-              "expected_answer": 6305.0,
-              "record_change": null,
-              "checkpoint": null,
-              "reactions": []
-            },
-            {
-              "turn": 5,
-              "speaker": "analyst",
               "kind": "tentative_decision_request",
               "text": "Give your tentative recommendation. Nothing will be executed yet.",
               "documents": [],
@@ -1502,7 +1490,7 @@
               "reactions": []
             },
             {
-              "turn": 6,
+              "turn": 5,
               "speaker": "analyst",
               "kind": "disclosure",
               "text": "Borrower C's finance team sent an updated schedule.",
@@ -1546,6 +1534,18 @@
                 "change_type": "new_information",
                 "evidence_doc": "DOC-03"
               },
+              "checkpoint": null,
+              "reactions": []
+            },
+            {
+              "turn": 6,
+              "speaker": "analyst",
+              "kind": "question",
+              "text": "What was the total of risk and insurance brokerage services segment revenue in 2009?",
+              "documents": [],
+              "program": "6305",
+              "expected_answer": 6305.0,
+              "record_change": null,
               "checkpoint": null,
               "reactions": []
             },
@@ -1622,7 +1622,7 @@
           ],
           "answer_checks": [
             {
-              "at_turn": 5,
+              "at_turn": 4,
               "source_turn": 0,
               "question": "What was the total of risk and insurance brokerage services segment revenue in 2009?",
               "program": "6305",
