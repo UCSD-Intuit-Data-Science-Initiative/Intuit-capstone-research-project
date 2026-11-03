@@ -157,7 +157,7 @@ def test_classes_for_a_future_renew_family():
 
 @pytest.fixture(scope="module")
 def spec():
-    return yaml.safe_load(SPEC_PATH.read_text())
+    return F.load_spec(REPO_ROOT, SPEC_PATH)
 
 
 @pytest.fixture(scope="module")
@@ -698,3 +698,162 @@ def test_agent_facing_text_uses_the_borrower_name(on_disk):
     for v in on_disk["versions"]:
         text = json.dumps(v).lower()
         assert "sikorsky" not in text and "lockheed" not in text and "rms" not in text.split()
+
+
+# ---------------------------------------------------------------- merge (sophia/stage-4): shared policy,
+# summary table, --check, one family per company in the draw
+
+POLICY_PATH = REPO_ROOT / "data/families/policies/RNW-1.yaml"
+
+
+def test_shared_policy_fills_threshold_and_metric_per_family():
+    policy = yaml.safe_load(POLICY_PATH.read_text())
+    f001 = F.fill_policy(policy, 0.01, "net sales")
+    other = F.fill_policy(policy, 0.05, "revenue")
+    p1, p2 = (lambda pol: (pol["rules"][0]["text"], pol["rules"][1]["text"]))(f001)
+    assert "current-year net sales - prior-year net sales" in p1 and "(+1.0%)" in p2
+    assert "current-year revenue" in other["rules"][0]["text"] and "(+5.0%)" in other["rules"][1]["text"]
+    assert [r["id"] for r in f001["rules"]] == [f"P{k}" for k in range(1, 11)]
+    assert not any("{" in r["text"] for r in f001["rules"] + other["rules"])
+
+
+def test_shared_policy_keeps_the_f001_wording(spec, on_disk):
+    assert spec["policy"] == on_disk["policy"]
+    assert on_disk["policy"]["rules"][1]["text"] == (
+        "At the threshold (+1.0%) or above, the line is eligible to renew. Below it, decline, "
+        "unless P6 requires escalation.")
+
+
+def test_unfilled_policy_placeholder_is_rejected():
+    policy = {"id": "X", "name": "x", "rules": [{"id": "P1", "text": "Use {metric} and {other}."}]}
+    with pytest.raises(F.FamilyError, match="unfilled placeholder"):
+        F.fill_policy(policy, 0.01, "net sales")
+
+
+def test_spec_names_a_policy_and_holds_no_policy_text():
+    raw = yaml.safe_load(SPEC_PATH.read_text())
+    assert set(raw["policy"]) == {"id", "threshold", "metric"}
+
+
+def test_load_spec_stops_on_a_missing_or_mismatched_policy(tmp_path):
+    (tmp_path / "data/families/specs").mkdir(parents=True)
+    (tmp_path / "data/families/policies").mkdir(parents=True)
+    path = tmp_path / "data/families/specs/F009.yaml"
+    path.write_text(yaml.safe_dump({"family_id": "F009", "policy": {"id": "NOPE", "threshold": 0.01,
+                                                                   "metric": "sales"}}))
+    with pytest.raises(F.FamilyError, match="not found"):
+        F.load_spec(tmp_path, path)
+    (tmp_path / "data/families/policies/NOPE.yaml").write_text(
+        yaml.safe_dump({"id": "OTHER", "name": "x", "rules": []}))
+    with pytest.raises(F.FamilyError, match="holds policy OTHER"):
+        F.load_spec(tmp_path, path)
+
+
+def test_provenance_hashes_the_spec_and_policy_files(spec):
+    prov = spec["provenance"]
+    assert prov["spec"] == "data/families/specs/F001.yaml"
+    assert prov["policy"] == "data/families/policies/RNW-1.yaml"
+    assert prov["spec_sha256"] == F._sha256(yaml.safe_load(SPEC_PATH.read_text()))
+    policy = yaml.safe_load(POLICY_PATH.read_text())
+    assert prov["policy_sha256"] == F._sha256(policy)
+    changed = copy.deepcopy(policy)
+    changed["rules"][2]["text"] += " Audited filings only."
+    assert F._sha256(changed) != prov["policy_sha256"]
+
+
+@needs_data
+def test_family_json_carries_provenance_and_schema_2(on_disk, spec):
+    assert on_disk["schema_version"] == 2 and on_disk["provenance"] == spec["provenance"]
+    bad = copy.deepcopy(on_disk)
+    del bad["provenance"]["policy_sha256"]
+    assert "provenance: missing policy_sha256" in F.validate(bad)
+    bad = copy.deepcopy(on_disk)
+    bad["policy"]["rules"][0]["text"] = "Use {metric}."
+    assert "policy: unfilled placeholder in the rules" in F.validate(bad)
+
+
+@needs_data
+def test_summary_table_has_one_row_per_version_matching_the_gold(on_disk):
+    rows = F.summary_rows(on_disk)
+    assert [r["version"].split()[0] for r in rows] == ["1", "2", "3", "4", "5a", "5b"]
+    for r, v in zip(rows, on_disk["versions"]):
+        classes = v["gold"]["action_classes"]
+        assert r["turns"] == len(v["turns"])
+        assert r["acceptable"] == ", ".join(f"`{a}`" for a in v["gold"]["acceptable_actions"])
+        assert ("`renew`" in r["invalid_approval"]) == (classes["renew"] == "invalid_approval")
+        assert r["record"] == ("yes" if v["gold"]["record_must_change"] else "no")
+    v3 = rows[2]
+    assert v3["acceptable"] == "`escalate`" and "`decline` skipped_restatement_rule" in v3["other"]
+    review = F.render_review(on_disk)
+    assert review.index("## Summary") < review.index("## Source table")
+    assert sum(1 for line in review.splitlines() if line.startswith(("| 1 ", "| 2 ", "| 3 ", "| 4 ", "| 5"))) >= 6
+
+
+def test_check_reports_missing_differing_and_orphan_files(tmp_path):
+    good = tmp_path / "data/families/pilot/F001/family.json"
+    differs = tmp_path / "docs/families/F001.md"
+    missing = tmp_path / "data/families/draw_log.csv"
+    orphan = tmp_path / "data/families/pilot/F002/family.json"
+    for path, text in ((good, "same\n"), (differs, "old\n"), (orphan, "{}\n")):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    outputs = {good: "same\n", differs: "new\n", missing: "x\n"}
+    assert F.stale_outputs(tmp_path, outputs) == [
+        "docs/families/F001.md: differs from a rebuild",
+        "data/families/draw_log.csv: missing",
+        "data/families/pilot/F002/family.json: no spec builds it",
+    ]
+    assert F.stale_outputs(tmp_path, {good: "same\n", differs: "old\n", orphan: "{}\n"}) == []
+
+
+@needs_data
+def test_check_mode_passes_on_the_committed_files_and_writes_nothing():
+    before = {p: p.stat().st_mtime_ns for p in (JSON_PATH, REPO_ROOT / "docs/families/F001.md",
+                                               REPO_ROOT / "data/families/draw_log.csv")}
+    lines = []
+    assert F.run(REPO_ROOT, log=lines.append, check=True) == 0
+    assert lines[-1].startswith("OK: generated files match a rebuild")
+    assert {p: p.stat().st_mtime_ns for p in before} == before
+
+
+@needs_data
+def test_draw_skips_companies_and_ids_already_used(spec):
+    rows = F.read_pilot_growth(REPO_ROOT)
+    convs = F.load_conversations(REPO_ROOT, {r["id"] for r in rows})
+    order = F.draw_order(rows)
+    log = F.run_draw("F002", order, convs, True, used_companies=frozenset({"LMT"}))
+    assert not any(r["id"].startswith("Single_LMT/") for r in log) and log[-1]["result"] == "pass"
+    kept = [r["id"] for r in order if r["company"] != "LMT" and F.metric_label(r) in F.ALLOWED_GROWTH_LABELS]
+    assert [r["id"] for r in log] == kept[:len(log)]
+    by_id = F.run_draw("F002", order, convs, False, used_ids=frozenset({spec["source_id"]}))
+    assert by_id[-1]["id"] != spec["source_id"]
+    assert spec["source_id"] not in {r["id"] for r in by_id}
+
+
+@needs_data
+def test_build_stops_when_a_later_spec_reuses_a_company(spec):
+    with pytest.raises(F.FamilyError, match="already used by an earlier family"):
+        F.build_from_spec(REPO_ROOT, spec, used_companies=frozenset({"LMT"}))
+
+
+@needs_data
+def test_no_used_companies_leaves_the_f001_draw_unchanged(built, spec):
+    rows = F.read_pilot_growth(REPO_ROOT)
+    convs = F.load_conversations(REPO_ROOT, {r["id"] for r in rows})
+    assert F.run_draw("F001", F.draw_order(rows), convs, False, frozenset(), frozenset()) == built[1]
+
+
+# Ivan's stricter checks are OFF (commented out in family.py). Their tests, from ivan/stage-4
+# tests/test_family.py, go here when the team turns them on:
+#
+# def test_line_too_long_fails_closed():
+#     table = [["", "a"]] + [[f"r{k}", str(1000 + 37 * k)] for k in range(F.MAX_LINE + 2)]
+#     assert F.line_too_long(table, 1, 1)
+#
+# def test_derived_percent_catches_a_margin_row():
+#     table = [["", "2009"], ["segment revenue", "$ 6305"], ["segment operating income", "900"],
+#              ["segment operating income margin", "14.3% ( 14.3 % )"]]
+#     assert F.derived_percent_hits(table, 2, 1)
+#
+# def test_round_threshold_to_half_a_point():
+#     assert F.round_threshold(0.106) == pytest.approx(0.105) and F.round_threshold(0.10) == 0.10

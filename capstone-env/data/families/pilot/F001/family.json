@@ -1,6 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "family_id": "F001",
+  "provenance": {
+    "spec": "data/families/specs/F001.yaml",
+    "spec_sha256": "sha256:cc762b0babeeedddc09ee59a2cfde5e1982cda5eb41d58995cc554d231ea4b1a",
+    "policy": "data/families/policies/RNW-1.yaml",
+    "policy_sha256": "sha256:923b971af86b5cd2ee83026069dca94a3f0d3472c5842b91db40e1005eef790f"
+  },
   "source": {
     "dataset": "ConvFinQA",
     "commit": "cf3eed2d5984960bf06bb8145bcea5e80b0222a6",

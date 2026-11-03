@@ -2,20 +2,24 @@
 
 Usage (inside Docker, from the repo root):
     python -m capstone.data.family               # builds every data/families/specs/*.yaml
+    python -m capstone.data.family --check       # rebuilds in memory, compares, writes nothing
 
 Inputs:
-    data/families/specs/<id>.yaml         authored script and policy (no gold)
+    data/families/specs/<id>.yaml         authored script (no gold); names its policy and threshold
+    data/families/policies/<policy>.yaml  shared written policy, {threshold} and {metric} filled per spec
     data/interim/stage3/candidates.csv    pilot rows only (held-out rows are skipped on read)
     data/raw/convfinqa/data/*.json        verified against data/checksums.sha256
 
 Outputs (all generated, never edited by hand; no timestamps, so reruns are byte-identical):
-    data/families/pilot/<id>/family.json  what the harness will read
+    data/families/pilot/<id>/family.json  what the harness will read (with spec and policy sha256)
     docs/families/<id>.md                 human review file, from the same dict
     data/families/draw_log.csv            draw, id, pass/fail, reason
 
-Draw order: pilot growth_rate candidates sorted by id, then shuffled with select.SEED. The first
-candidate passing every family check is the only usable pick, and must be the spec's source_id.
-Stage 3 output is not changed by these checks.
+Draw order: pilot growth_rate candidates sorted by id, then shuffled with select.SEED. Specs are
+built in file-name order; companies and source ids used by earlier specs are removed before a
+later spec's draw (one family per company), so adding a family never changes an earlier draw.
+The first candidate passing every family check is the only usable pick, and must be the spec's
+source_id. Stage 3 output is not changed by these checks.
 
 Family rules (decided Nov 1; each returns a reason code or raises FamilyError):
   label_not_allowed       metric row label must be in ALLOWED_GROWTH_LABELS (trimmed, lowercased).
@@ -36,6 +40,11 @@ Family rules (decided Nov 1; each returns a reason code or raises FamilyError):
                           true and wrong values must be on opposite sides.
   dashes                  cells reading exactly 2014 / 2013 / 2212 are corrupted dashes (U+2014,
                           U+2013, U+2212) and count as blanks here.
+  used company / id       companies and source ids of earlier specs are removed before the draw.
+
+Ported from ivan/stage-4 but OFF (commented out, pending a team decision): line_too_long (a row
+or column over MAX_LINE other cells fails closed), derived_percent (a percent cell computed from
+the edited cell), round_threshold (nearest 0.5 pp).
 """
 
 from __future__ import annotations
@@ -43,6 +52,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import itertools
 import json
 import random
@@ -60,7 +70,7 @@ from capstone.data.program import (
 )
 from capstone.data.select import SEED, TOTAL_TOL_ABS, TOTAL_TOL_REL, Table, irrelevant_cells
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: adds `provenance` (spec + shared policy file, with sha256)
 ALLOWED_GROWTH_LABELS = frozenset({
     "net sales", "sales", "revenue", "revenues", "net revenue", "segment revenue",
     "operating revenues", "operating revenue",
@@ -215,6 +225,11 @@ def draw_reasons(row: dict, e: dict) -> list[str]:
         reasons.append("sum_relation")
     if ratio_rows(table):
         reasons.append("ratio_row")
+    # Ivan's stricter checks (step 8, OFF; see the block after check_edit):
+    # if line_too_long(table, a["row"], a["col"]):
+    #     reasons.append("line_too_long")
+    # if derived_percent_hits(table, a["row"], a["col"]):
+    #     reasons.append("derived_percent")
     x, y = float(a["literal"]), float(b["literal"])
     if text_states(text, [x, y, x - y]):
         reasons.append("page_text_restates")
@@ -241,6 +256,68 @@ def check_edit(table: Table, row: int, col: int, new_value: float, text: str) ->
         raise FamilyError(f"page text states {stated}, which restates or contradicts cell ({row}, {col})")
     if locate(literal_text(new_value), table):
         raise FamilyError(f"new value {new_value} already appears in the table")
+    # Ivan's stricter checks (step 8, OFF until the team agrees; see the block below):
+    # if line_too_long(table, row, col):
+    #     raise FamilyError(f"cell ({row}, {col}): row or column has over {MAX_LINE} other cells, too many to check")
+    # hits = derived_percent_hits(table, row, col)
+    # if hits:
+    #     raise FamilyError(f"cell ({row}, {col}) feeds percent cells {hits}")
+
+
+# ---------------------------------------------------------------- Ivan's stricter checks (OFF)
+# Ported from ivan/stage-4 (51b4f2d, family.py `hidden_sums`, `derived_percent_hits`, `round_threshold`).
+# Commented out on purpose: turning any of these on can change which candidate the draw picks first,
+# and so F001's pick (draw 43). Before enabling: uncomment the constants, the functions and the hooks
+# in `draw_reasons` and `check_edit`, rerun `make family --check`, and log the decision in CLAUDE.md.
+# Needs `from capstone.data.cells import cell_number` (already used by select.py).
+#
+# MAX_LINE = 10          # a row or column with more other cells than this fails closed (cannot be checked)
+# PERCENT_SLACK = 0.01   # percentage points, on top of half the shown precision
+# THRESHOLD_STEP = 0.005 # realistic thresholds: nearest 0.5 percentage points
+#
+#
+# def _line_numbers(table: Table, i: int, j: int, axis: str) -> list[float]:
+#     """The other non-percent numbers in the cell's row or column, as shown."""
+#     cells = [(i, c) for c in range(1, len(table[i])) if c != j] if axis == "row" else \
+#         [(r, j) for r in range(1, len(table)) if r != i and j < len(table[r])]
+#     numbers = (cell_number(table[r][c]) for r, c in cells)
+#     return [n.shown for n in numbers if n is not None and not n.is_percent]
+#
+#
+# def line_too_long(table: Table, i: int, j: int) -> bool:
+#     """Fail closed: sum_relation stops at MAX_SUM_TERMS, so a long row or column is never 'clean'."""
+#     return any(len([v for v in _line_numbers(table, i, j, axis) if v]) > MAX_LINE for axis in ("row", "column"))
+#
+#
+# def _percent_tolerance(cell: str) -> float:
+#     m = re.search(r"\d+(?:\.(\d+))?", cell.replace(",", ""))
+#     decimals = len(m.group(1) or "") if m else 0
+#     return 0.5 * 10 ** -decimals + PERCENT_SLACK
+#
+#
+# def derived_percent_hits(table: Table, i: int, j: int) -> list[str]:
+#     """Percent cells computed from this cell: a margin in its column, a % change in its row.
+#     ratio_rows only catches a whole row that is a ratio in every column; this catches one cell."""
+#     n = cell_number(table[i][j])
+#     x = n.shown if n is not None else 0
+#     if not x:
+#         return []
+#     ratios = [100 * abs(q) for y in _line_numbers(table, i, j, "column") if y for q in (x / y, y / x)]
+#     changes = [100 * abs(x - y) / abs(b) for y in _line_numbers(table, i, j, "row") if y for b in (x, y)]
+#     hits = []
+#     cells = [(r, j) for r in range(1, len(table)) if j < len(table[r])] + \
+#         [(i, c) for c in range(1, len(table[i]))]
+#     for r, c in cells:
+#         p = cell_number(table[r][c])
+#         if p is not None and p.is_percent and \
+#                 any(abs(q - abs(p.shown)) <= _percent_tolerance(table[r][c]) for q in ratios + changes):
+#             hits.append(f"{table[r][0]}: {table[r][c]}")
+#     return hits
+#
+#
+# def round_threshold(threshold: float) -> float:
+#     """Nearest 0.5 pp. If used, build_family must re-check margins on the rounded value."""
+#     return round(round(threshold / THRESHOLD_STEP) * THRESHOLD_STEP, 6)
 
 
 # ---------------------------------------------------------------- draw
@@ -266,8 +343,13 @@ def metric_label(row: dict) -> str:
 
 
 def run_draw(family_id: str, order: Sequence[dict], convs: dict[str, dict],
-             prefilter_labels: bool) -> list[dict]:
-    """Log rows up to and including the first pass."""
+             prefilter_labels: bool, used_companies: frozenset[str] = frozenset(),
+             used_ids: frozenset[str] = frozenset()) -> list[dict]:
+    """Log rows up to and including the first pass.
+
+    Rows from companies or conversations already used by an earlier family are removed before
+    numbering, like the label prefilter, so the order of the rest does not change."""
+    order = [r for r in order if r["company"] not in used_companies and r["id"] not in used_ids]
     if prefilter_labels:
         order = [r for r in order if metric_label(r) in ALLOWED_GROWTH_LABELS]
     log = []
@@ -610,6 +692,7 @@ def build_family(spec: dict, row: dict, e: dict, source_commit: str) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
         "family_id": spec["family_id"],
+        "provenance": spec["provenance"],
         "source": {
             "dataset": "ConvFinQA", "commit": source_commit, "id": row["id"],
             "source_split": row["source_split"], "split": row["split"], "company": row["company"],
@@ -641,8 +724,10 @@ def build_family(spec: dict, row: dict, e: dict, source_commit: str) -> dict:
 # ---------------------------------------------------------------- schema
 
 
-_TOP = {"schema_version": int, "family_id": str, "source": dict, "borrower": str, "policy": dict,
-        "metric_program": str, "checks": dict, "versions": list}
+_TOP = {"schema_version": int, "family_id": str, "provenance": dict, "source": dict, "borrower": str,
+        "policy": dict, "metric_program": str, "checks": dict, "versions": list}
+_PROVENANCE = {"spec": str, "spec_sha256": str, "policy": str, "policy_sha256": str}
+_POLICY = {"id": str, "name": str, "threshold": (int, float), "rules": list}
 _SOURCE = {"dataset": str, "commit": str, "id": str, "source_split": str, "split": str, "company": str,
            "year": str, "written_answer": str, "figure_basis": str, "figure_note": str,
            "turn_programs": list, "published_answers": list, "table": list}
@@ -692,6 +777,10 @@ def validate(family: dict) -> list[str]:
     if errors:
         return errors
     _fields(family["source"], _SOURCE, "source", errors)
+    _fields(family["provenance"], _PROVENANCE, "provenance", errors)
+    _fields(family["policy"], _POLICY, "policy", errors)
+    if any("{" in r.get("text", "") for r in family["policy"].get("rules", [])):
+        errors.append("policy: unfilled placeholder in the rules")
     for v in family["versions"]:
         at = f"version {v.get('version_id')}"
         _fields(v, _VERSION, at, errors)
@@ -750,8 +839,32 @@ def _record_md(record: dict) -> list[str]:
     return lines
 
 
+def _actions_md(classes: dict, wanted: set[str]) -> str:
+    return ", ".join(f"`{a}`" for a in ACTIONS if classes[a] in wanted) or "none"
+
+
+def summary_rows(family: dict) -> list[dict]:
+    """One row per version for the review file's summary table (ported from Ivan's review file)."""
+    rows = []
+    for v in family["versions"]:
+        g, classes = v["gold"], v["gold"]["action_classes"]
+        rows.append({
+            "version": f"{v['version_id']} {v['version_type']}", "turns": len(v["turns"]),
+            "tables": f"`{v['start_table']}` → `{v['final_table']}`",
+            "metric": f"{g['metric_value']:.2%}", "meets": "yes" if g["meets_threshold"] else "no",
+            "acceptable": _actions_md(classes, {"valid"}),
+            "invalid_approval": _actions_md(classes, {"invalid_approval"}),
+            "unnecessary_block": _actions_md(classes, {"unnecessary_block"}),
+            "other": ", ".join(f"`{a}` {classes[a]}" for a in ACTIONS
+                               if classes[a] in {"over_escalated", "skipped_restatement_rule"}) or "none",
+            "record": "yes" if g["record_must_change"] else "no",
+        })
+    return rows
+
+
 def render_review(family: dict) -> str:
     src, checks, pol = family["source"], family["checks"], family["policy"]
+    prov = family["provenance"]
     L = [f"# Family {family['family_id']} review file", "",
          "Generated by `python -m capstone.data.family` (do not edit by hand).", "",
          f"> **Figures are not reported results.** {src['figure_note']}", "",
@@ -766,6 +879,15 @@ def render_review(family: dict) -> str:
          f"from the threshold (required {checks['wrong_margin']['required_pp']:.2f} pp)"]
     L += [f"- Edit size ({e['label']}): {e['source_value']} → {e['new_value']} = {e['fraction']:.2%} "
           f"(cap {e['max_fraction']:.0%})" for e in checks["edit_sizes"]]
+    L += [f"- Built from `{prov['spec']}` and `{prov['policy']}` "
+          f"(policy {prov['policy_sha256'][:15]}…)"]
+    L += ["", "## Summary", "",
+          "| Version | Turns | Tables | Final metric | Meets threshold | Acceptable next actions | "
+          "Invalid approval | Unnecessary block | Other failures | Record must change |",
+          "|---|---:|---|---:|---|---|---|---|---|---|"]
+    L += [f"| {r['version']} | {r['turns']} | {r['tables']} | {r['metric']} | {r['meets']} | {r['acceptable']} | "
+          f"{r['invalid_approval']} | {r['unnecessary_block']} | {r['other']} | {r['record']} |"
+          for r in summary_rows(family)]
     L += ["", "## Source table", "", f"*{src['figure_note']}*", ""] + _table_md(src["table"])
     L += ["", f"## Policy {pol['id']}: {pol['name']}", ""]
     L += [f"- **{r['id']}** {r['text']}" for r in pol["rules"]]
@@ -831,12 +953,12 @@ def render_review(family: dict) -> str:
     return "\n".join(L)
 
 
-def write_draw_log(path: Path, rows: list[dict]) -> None:
-    with path.open("w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=["family_id", "draw", "id", "result", "reason"],
-                           lineterminator="\n")
-        w.writeheader()
-        w.writerows(rows)
+def draw_log_text(rows: list[dict]) -> str:
+    fh = io.StringIO()
+    w = csv.DictWriter(fh, fieldnames=["family_id", "draw", "id", "result", "reason"], lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    return fh.getvalue()
 
 
 def load_conversations(root: Path, ids: set[str]) -> dict[str, dict]:
@@ -855,10 +977,47 @@ def source_commit(root: Path) -> str:
     raise FamilyError("convfinqa is not in data/sources.yaml")
 
 
-def build_from_spec(root: Path, spec: dict) -> tuple[dict, list[dict]]:
+def _sha256(obj: object) -> str:
+    """sha256 of the parsed YAML, so comments and layout do not change it."""
+    return "sha256:" + hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()
+
+
+def fill_policy(policy: dict, threshold: float, metric: str) -> dict:
+    """The shared policy with this family's {threshold} (as +1.0%) and {metric} filled in."""
+    rules = [{"id": r["id"], "text": r["text"].replace("{threshold}", f"{threshold:+.1%}")
+              .replace("{metric}", metric)} for r in policy["rules"]]
+    left = [r["id"] for r in rules if re.search(r"\{\w+\}", r["text"])]
+    if left:
+        raise FamilyError(f"policy {policy['id']}: unfilled placeholder in {left}")
+    return {"id": policy["id"], "name": policy["name"], "threshold": threshold, "rules": rules}
+
+
+def load_spec(root: Path, path: Path) -> dict:
+    """A spec with its shared policy filled in, and the sha256 of both in `provenance`."""
+    raw = yaml.safe_load(path.read_text())
+    ref = raw["policy"]
+    policy_path = root / "data/families/policies" / f"{ref['id']}.yaml"
+    if not policy_path.exists():
+        raise FamilyError(f"{path.name}: policy {ref['id']} not found at {policy_path.relative_to(root)}")
+    policy = yaml.safe_load(policy_path.read_text())
+    if policy["id"] != ref["id"]:
+        raise FamilyError(f"{policy_path.name} holds policy {policy['id']}, not {ref['id']}")
+    spec = {**raw, "policy": fill_policy(policy, ref["threshold"], ref["metric"])}
+    spec["provenance"] = {"spec": str(path.relative_to(root)), "spec_sha256": _sha256(raw),
+                          "policy": str(policy_path.relative_to(root)), "policy_sha256": _sha256(policy)}
+    return spec
+
+
+def build_from_spec(root: Path, spec: dict, used_companies: frozenset[str] = frozenset(),
+                    used_ids: frozenset[str] = frozenset()) -> tuple[dict, list[dict]]:
     rows = read_pilot_growth(root)
+    own = next((r for r in rows if r["id"] == spec["source_id"]), None)
+    if own is not None and (own["company"] in used_companies or own["id"] in used_ids):
+        raise FamilyError(f"{spec['family_id']}: {spec['source_id']} uses company {own['company']}, "
+                          "already used by an earlier family (one family per company)")
     convs = load_conversations(root, {r["id"] for r in rows})
-    log = run_draw(spec["family_id"], draw_order(rows), convs, spec["prefilter_labels"])
+    log = run_draw(spec["family_id"], draw_order(rows), convs, spec["prefilter_labels"],
+                   used_companies, used_ids)
     picked = log[-1]["id"]
     if picked != spec["source_id"]:
         raise FamilyError(f"the draw picked {picked}, but the spec is written for {spec['source_id']}")
@@ -870,28 +1029,59 @@ def build_from_spec(root: Path, spec: dict) -> tuple[dict, list[dict]]:
     return family, log
 
 
-def run(root: Path, log: Callable[[str], None] = print) -> int:
-    fetch.verify(fetch.Paths(root), log=log)
+def build_all(root: Path, log: Callable[[str], None] = print) -> dict[Path, str]:
+    """Every generated file and its text, from every spec, in file-name order. Writes nothing."""
     specs = sorted((root / "data/families/specs").glob("*.yaml"))
     log(f"  specs in: {len(specs)}")
-    draws = []
+    outputs, draws, companies, ids = {}, [], set(), set()
     for path in specs:
-        spec = yaml.safe_load(path.read_text())
-        family, draw = build_from_spec(root, spec)
+        spec = load_spec(root, path)
+        family, draw = build_from_spec(root, spec, frozenset(companies), frozenset(ids))
+        companies.add(family["source"]["company"])
+        ids.add(family["source"]["id"])
         draws += draw
         fid = family["family_id"]
-        out = root / "data/families/pilot" / fid
-        out.mkdir(parents=True, exist_ok=True)
-        (out / "family.json").write_text(dumps(family))
-        review = root / "docs/families"
-        review.mkdir(parents=True, exist_ok=True)
-        (review / f"{fid}.md").write_text(render_review(family))
+        outputs[root / "data/families/pilot" / fid / "family.json"] = dumps(family)
+        outputs[root / "docs/families" / f"{fid}.md"] = render_review(family)
         turns = sum(len(v["turns"]) for v in family["versions"])
         log(f"  {fid}: {len(draw)} draws ({len(draw) - 1} failed, 1 passed), picked {family['source']['id']}")
-        log(f"  {fid}: {len(family['versions'])} versions, {turns} turns out; "
-            f"wrote {out.relative_to(root)}/family.json and docs/families/{fid}.md")
-    write_draw_log(root / "data/families/draw_log.csv", draws)
+        log(f"  {fid}: {len(family['versions'])} versions, {turns} turns out")
+    outputs[root / "data/families/draw_log.csv"] = draw_log_text(draws)
     log(f"  draw log rows out: {len(draws)}")
+    return outputs
+
+
+def stale_outputs(root: Path, outputs: dict[Path, str]) -> list[str]:
+    """Generated files that differ from a rebuild, are missing, or have no spec any more."""
+    problems = []
+    for path, text in outputs.items():
+        rel = path.relative_to(root)
+        if not path.exists():
+            problems.append(f"{rel}: missing")
+        elif path.read_text() != text:
+            problems.append(f"{rel}: differs from a rebuild")
+    on_disk = set((root / "data/families/pilot").glob("*/family.json")) | set((root / "docs/families").glob("*.md"))
+    problems += [f"{p.relative_to(root)}: no spec builds it" for p in sorted(on_disk - set(outputs))]
+    return problems
+
+
+def run(root: Path, log: Callable[[str], None] = print, check: bool = False) -> int:
+    fetch.verify(fetch.Paths(root), log=log)
+    outputs = build_all(root, log)
+    if check:
+        problems = stale_outputs(root, outputs)
+        for p in problems:
+            log(f"  STALE: {p}")
+        log(f"  files checked: {len(outputs)}, stale: {len(problems)}")
+        if problems:
+            log("STOP: generated files do not match a rebuild; run `make family`")
+            return 1
+        log("OK: generated files match a rebuild (nothing written)")
+        return 0
+    for path, text in outputs.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        log(f"  wrote {path.relative_to(root)}")
     log("OK: families built")
     return 0
 
@@ -899,9 +1089,11 @@ def run(root: Path, log: Callable[[str], None] = print) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[3])
+    ap.add_argument("--check", action="store_true",
+                    help="rebuild in memory and compare with the files on disk; write nothing")
     args = ap.parse_args(argv)
     try:
-        return run(args.root)
+        return run(args.root, check=args.check)
     except (fetch.FetchError, FamilyError) as exc:
         print(f"STOP: {exc}", file=sys.stderr)
         return 1

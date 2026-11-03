@@ -82,14 +82,15 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - Harness v0.1 is NOT in this repo yet (see Status). `cases/` stays empty until it is merged.
   `results/` run outputs (git-ignored).
 - Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`
-  (`specs/<id>.yaml` authored script with no gold; `pilot/<id>/family.json` and `draw_log.csv` generated;
-  review file in `docs/families/<id>.md`, generated). Never edit generated files by hand.
+  (`specs/<id>.yaml` authored script with no gold; `policies/<id>.yaml` shared written policy, filled per spec;
+  `pilot/<id>/family.json` and `draw_log.csv` generated; review file in `docs/families/<id>.md`, generated).
+  Never edit generated files by hand; `make family-check` fails if any of them differs from a rebuild.
   Pins: `data/sources.yaml` (commits + git blob ids), `data/checksums.sha256` (SHA-256 of all 15 raw files).
   `data/profile_expected.yaml` = Nov 1 numbers that `make profile` must reproduce. See `data/README.md`.
 - `notebooks/` (02_profile.ipynb), `docs/` (profile_report.md, selection_report.md, reference/; later dataset
   card, review log).
 - Run everything in Docker: `make build`, `make test`, `make smoke`, `make shell`, `make data`,
-  `make data-verify`, `make profile`, `make select`, `make family`.
+  `make data-verify`, `make profile`, `make select`, `make family`, `make family-check`.
 
 ## Working rules
 - ONE stage per session (stages in the data plan). Propose a short plan and wait for approval before writing code.
@@ -108,7 +109,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [x] Stage 1 data layout + pinned fetch + checksums (Nov 1; tests/test_fetch.py)
 - [x] Stage 2 profile: 54/54 Nov 1 fields reproduced (Nov 1; tests/test_program.py, tests/test_profile.py)
 - [x] Stage 3 select: gate passed (Nov 1; tests/test_select.py, test_answers.py, test_cells_edit.py; 125 tests)
-- [ ] 4 build families (1 of 12 built: F001 Lockheed, Nov 1; tests/test_family.py; 256 tests pass)
+- [ ] 4 build families (1 of 12 built: F001 Lockheed, Nov 1; tests/test_family.py; 269 tests pass after the
+  Nov 2 merge on `sophia/stage-4`)
 - [ ] 5 review + scale  · [ ] 6 connect to harness (report/record/calculator tools, record-state checks)
 
 ## Stage 4 notes (from Stage 3)
@@ -134,8 +136,13 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - Next family should have `renew` as its true answer: F001's true answer is decline, so `unnecessary_block` is
   only a needless hold there, and always-decline gets 5 of 6 final decisions.
 - Family rules are written in `family.py`'s docstring. Use `prefilter_labels: true` in new specs: unlisted row
-  labels are skipped before the draw and the order of the rest stays the same. Skip conversations already used
-  and companies already used (one family per company); `run_draw` does not do that yet.
+  labels are skipped before the draw and the order of the rest stays the same. `run_draw` skips companies and
+  source ids used by earlier specs (file-name order), so a new family never changes an earlier draw.
+- New specs name a shared policy (`policy: {id, threshold, metric}`); the text lives in `policies/<id>.yaml`.
+- Coverage still missing (from both F001 and Ivan's draft): a family whose true answer is renew, and a
+  genuinely new event (every change so far is a past error).
+- Wrong-value direction is unchecked against the data plan: F001 and Ivan's draft put the wrong value above
+  the true value. The data plan link returned "artifact not found" on Nov 1 and Nov 2.
 - The allowed-label list covers growth_rate only; ratio families need their own list. 68 of 243 pilot growth_rate
   candidates (20 companies) pass the label rule, before the other checks.
 - `family.json` `source` holds the real company; the harness must never show `source` to the agent.
@@ -153,6 +160,13 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - Dhruvi: credit review instead of invoice review?
 - Restatement rule wording; acceptable actions for unsupported claims; real vs renamed companies.
   F001 uses provisional answers (policy RNW-1, renamed to Borrower A), approved by Jiya for this family only.
+- Team (Nov 2 review of jiya/ivan stage-4): keep one family per company (Ivan's LMT draft is not merged) or
+  allow it? Backlog on the allowed label list? Calculation questions scripted or worked out by the agent
+  (F001: worked out)? Page text shown or table only (F001: shown)? Version 3: decline OK or escalate only
+  (F001: escalate only)? Evidence for a change: any document naming the figure (RNW-1 P3) or audited filings
+  only (Ivan's credit_renewal_v0)? Turn on Ivan's stricter checks (commented out in family.py)?
+- Versions 7-9 (original, correction that does not flip, new event) proposed; not built. Adding them is a
+  schema and policy change: needs team agreement first.
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -203,3 +217,10 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   terms; ratio-row check before every edit; year-pair and direction rules; page must not state an input, difference
   or the growth rate; corrupted dashes are blanks; every changed value within 10% of its source value (replaces the
   50% growth cap). Margin read strictly: max(0.5 pp, 10% of |value|, 10% of |threshold|).
+- 2026-11-02 Merge on `sophia/stage-4`: Jiya's branch is the base (fast-forward). Ported from Ivan's branch: a shared
+  policy file (RNW-1 moved unchanged to `data/families/policies/RNW-1.yaml`, `{threshold}` and `{metric}` filled per
+  spec), the review summary table, `--check` (`make family-check`) and spec/policy sha256 in `family.json`
+  (`provenance`; schema_version 2). `run_draw` now skips companies and source ids of earlier specs; F001's draw is
+  unchanged (43 draws). Ivan's stricter checks (`line_too_long`, `derived_percent`, `round_threshold`) are ported
+  but commented out, since turning them on can change F001's pick. Ivan's family gr01_lmt_2007_p55 and his policy
+  credit_renewal_v0 are not merged (second LMT family; backlog not on the label list); both stay on ivan/stage-4.
