@@ -28,6 +28,21 @@ Full data plan (team doc): https://claude.ai/artifact/8FJ8v5tQYr4P5jbU9RM4AD
 - Changes happen BEFORE execution only. Reserve unseen scenario structures for later (held-out).
 - Mentor Victor Calderon: separate harness from model (plug-and-play, parallel); trace every step.
 
+## Mentor feedback, Nov 4 2026 (relayed to the team; focus of the next discussion meeting)
+Overall "looking decent"; clarity is needed on three things. The novelty is expected to come from how each
+agent is defined (its job and boundaries) and how agents interact once they pass messages to each other.
+1. Agent boundaries: a detailed diagram and explanation of when an agent stops, which tools it calls, and how
+   it makes edits (record writes), designed so it still holds when we move to multi-agent work.
+2. Policies: expand them to be thorough, with mathematical rules and procedures. Real lenders each have their
+   own credit review policies and may not publish them, so the mentor questioned the choice of this setup (she
+   did not know Victor recommended FinQA/ConvFinQA). Task: collect public policies (for "the big 4", meaning
+   still to confirm: big 4 banks or Big 4 firms) and build a realistic policy from them. Clarify at the meeting
+   that FinQA/ConvFinQA are the fact layer only and the policy is authored.
+3. Diagnostic categories that cover the logs in detail: how we measure drift. Not yes/no checks; labels
+   should be flexible enough to document everything (several per run, with where, how bad, and notes).
+Consequence: pause building new pilot families until the policy is expanded (thresholds and metrics may
+change). PR #3's format and tooling do not depend on the policy wording.
+
 ## Data (decided Nov 1 2026, pending Dhruvi sign-off on workflow)
 Sources: FinQA (github.com/czyssrs/FinQA) and ConvFinQA (github.com/czyssrs/ConvFinQA), both MIT.
 They are the FACT layer (real 10-K figures + executable programs). We author the DECISION layer
@@ -252,3 +267,6 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   Dhruvi). D) margin rows are hidden from the agent instead of rejecting the table (`hidden_rows`; the page text
   must not state a hidden value). E) version 3 stays escalate only until Dhruvi says otherwise. F) F001 is kept;
   RNW-1 P12 makes the pro forma schedule the basis of the review after an acquisition.
+- 2026-11-04 Mentor feedback recorded (see "Mentor feedback, Nov 4"): agent-boundary diagram, thorough policies
+  grounded in public sources, flexible diagnostic labels for drift. New pilot families paused until the policy
+  is expanded. Agent-boundary diagram is the first of the three to prepare.
