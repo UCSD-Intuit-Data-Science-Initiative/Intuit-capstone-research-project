@@ -42,6 +42,33 @@ agent is defined (its job and boundaries) and how agents interact once they pass
    should be flexible enough to document everything (several per run, with where, how bad, and notes).
 Consequence: pause building new pilot families until the policy is expanded (thresholds and metrics may
 change). PR #3's format and tooling do not depend on the policy wording.
+Status Nov 12: Sophia drafted RNW-1-v2 (branch `policy/rnw-1-v2`, 58 rules from OCC + big-bank 10-Ks).
+
+## Architecture feedback, Nov 12 2026 (after the boundaries page; "great progress, good foundation")
+1. The shared record shows errors, but not all work that can go stale: store calculations and tentative
+   recommendations as objects tied to the facts (and record version) they used, enough to diagnose stale
+   reasoning. Keep it simple for the pilot.
+2. The open harness exposes mistakes (good for pilot/baselines). When validation/approval gates are added,
+   measure how much protection they add, so a protected system does not look like a better-reasoning agent
+   only because software blocked its mistakes.
+3. Define when review is mandatory, what the reviewer can approve, and what happens after a return. A decision
+   agent wrongly skipping review must be an explicitly measured failure.
+4. Grader: use the event log to check intermediate states as well as the final state. Report attempted invalid
+   changes, accepted invalid changes and final consequences separately.
+
+## Stage 6: architecture (in progress) — read docs/architecture_plan.md first
+Plan agreed Nov 12 (Ishaan): 7 PRs. Now: 1 harness core (Ivan's harness + optional Langfuse copy), 2 credit
+environment + agent view + versioned record + family player, 3 grader v0 (labels from the whole trace, test
+agents), 4 first real run (S01 + F001, 36 runs, needs an API key). Later: 5 gates, 6 review + multi-agent,
+7 policy swap to RNW-1-v2. Rules: the harness never knows the policy (it reads family.json); the trace file is
+the official record and Langfuse only a copy; calculations and recommendations are versioned objects; every
+attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
+- [ ] PR 1 harness core — branch `stage6/harness-core` (Nov 12): Ivan's `setup/script-player-agent-loop`
+  modules ported onto main (his 21 tests pass), `observe.py` + `--langfuse` + `cli langfuse` (langfuse 5.2.0,
+  off by default, keys `LANGFUSE_*` in .env), 396 tests pass. Not pushed yet.
+- [ ] PR 2 credit environment + player · [ ] PR 3 grader v0 · [ ] PR 4 first real run
+- Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
+  families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
 ## Data (decided Nov 1 2026, pending Dhruvi sign-off on workflow)
 Sources: FinQA (github.com/czyssrs/FinQA) and ConvFinQA (github.com/czyssrs/ConvFinQA), both MIT.
@@ -97,8 +124,12 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate),
   `family.py` (Stage 4 draw or hand-pick, family rules, template fill, both modes, gold, grading, JSON + review
   + index output).
-- Harness v0.1 is NOT in this repo yet (see Status). `cases/` stays empty until it is merged.
-  `results/` run outputs (git-ignored).
+- `src/capstone/` harness (Stage 6, from Ivan's branch): `models.py` (mock/Anthropic/OpenAI/OpenRouter adapters),
+  `agent.py` (tool-call loop), `player.py` (case files, modes), `env.py` (environment interface + toy_invoice),
+  `trace.py` (trace format), `runner.py` (repeats, pass^k, tables), `cli.py` (run/score/show/chat/langfuse),
+  `checker.py` (placeholder until PR 3), `observe.py` (optional Langfuse copy). `configs/models.yaml` (model
+  names → provider/id/params/price; ids blank until chosen). `cases/` holds the harness's example case only.
+  `results/` run outputs (git-ignored). Plan: `docs/architecture_plan.md`.
 - Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`
   (`specs/<id>.yaml` short authored spec with no gold; `templates/<id>.yaml` shared 9-version script;
   `policies/<id>.yaml` shared written policy, filled per spec; `pilot|smoke/<id>/family.json` and `draw_log.csv`
@@ -106,10 +137,10 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   Never edit generated files by hand; `make family-check` fails if any of them differs from a rebuild.
   Pins: `data/sources.yaml` (commits + git blob ids), `data/checksums.sha256` (SHA-256 of all 15 raw files).
   `data/profile_expected.yaml` = Nov 1 numbers that `make profile` must reproduce. See `data/README.md`.
-- `notebooks/` (02_profile.ipynb), `docs/` (profile_report.md, selection_report.md, reference/; later dataset
-  card, review log).
+- `notebooks/` (02_profile.ipynb), `docs/` (profile_report.md, selection_report.md, architecture_plan.md,
+  reference/; later dataset card, review log).
 - Run everything in Docker: `make build`, `make test`, `make smoke`, `make shell`, `make data`,
-  `make data-verify`, `make profile`, `make select`, `make family`, `make family-check`.
+  `make data-verify`, `make profile`, `make select`, `make family`, `make family-check`, `make run ARGS="..."`.
 
 ## Working rules
 - ONE stage per session (stages in the data plan). Propose a short plan and wait for approval before writing code.
@@ -122,8 +153,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 
 ## Status
 - [x] Docker env
-- [ ] Harness v0.1 (FinVault adapter, 24 tests) exists in a separate zip and is NOT merged into this repo yet;
-  merge it as its own task before Stage 6.
+- [~] Harness: Ivan's `setup/script-player-agent-loop` (Oct 29) is being ported in Stage 6 PR 1 (see the Stage 6
+  section). The older "Harness v0.1 zip with a FinVault adapter" is not in the repo and is not needed.
 - [x] Data profiling + data plan (Nov 1)
 - [x] Stage 1 data layout + pinned fetch + checksums (Nov 1; tests/test_fetch.py)
 - [x] Stage 2 profile: 54/54 Nov 1 fields reproduced (Nov 1; tests/test_program.py, tests/test_profile.py)
@@ -131,7 +162,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [ ] 4 build families: 4 of 12 built (Nov 3, `data/stage-4-format`): pilot F001 (drawn) and F002 (Ivan's,
   hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
   352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
-- [ ] 5 review + scale  · [ ] 6 connect to harness (report/record/calculator tools, record-state checks)
+- [ ] 5 review + scale  · [ ] 6 connect to harness: in progress, see the Stage 6 section and
+  docs/architecture_plan.md
 
 ## Stage 4 notes (from Stage 3)
 - Pilot mix target: growth_rate 5, ratio 5 (10 families; several may share a company, never a table, since
@@ -191,8 +223,9 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - Team: evidence for a correction is any document naming the figure (RNW-1 P3), not audited filings only
   (Ivan's credit_renewal_v0); confirm. Turn on Ivan's stricter checks (commented out in family.py)? Sums up to
   5 terms (Jiya) or the Nov 1 a ± b = c rule (frees about 2 more pilot tables and 3 held-out)?
-- Harness (Stage 6): how a reaction fires (the `request_evidence` tool only, or asking in plain text too), and
-  that each run starts fresh (no memory across runs).
+- Harness (Stage 6): how a reaction fires (the `request_evidence` tool only, or asking in plain text too); limits
+  (15 tool calls/turn, 60/run, 120 s/turn, 3 rejected calls in a row: proposed); which model and keys for PR 4;
+  Langfuse (chosen) vs LangSmith; multi-agent single writer vs proposals. Each run starts fresh (decided).
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -270,3 +303,13 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - 2026-11-04 Mentor feedback recorded (see "Mentor feedback, Nov 4"): agent-boundary diagram, thorough policies
   grounded in public sources, flexible diagnostic labels for drift. New pilot families paused until the policy
   is expanded. Agent-boundary diagram is the first of the three to prepare.
+- 2026-11-12 Architecture feedback recorded (see "Architecture feedback, Nov 12"). Stage 6 plan agreed (Ishaan): 7
+  PRs in docs/architecture_plan.md. Decisions: reuse Ivan's harness (`setup/script-player-agent-loop`, ported, not
+  merged, since it predates Stages 1-4); tentative recommendations go through a `recommend` tool so they are
+  stored objects; the calculator takes numbers or fact names and stores what it used; pilot in open mode, gates
+  in PR 5; Langfuse as the optional viewer (trace files stay the official record; no OpenTelemetry layer of our
+  own); the harness stays policy-agnostic so RNW-1-v2 is a spec change plus `make family`.
+- 2026-11-12 PR 1: langfuse 5.2.0 added (requirements.txt `>=5.2,<6`; lock regenerated with uv keeping every
+  existing pin, adds langfuse + otel exporter/sdk 1.45.1 + protobuf). Export is post-hoc from saved traces
+  (`observe.py`): Langfuse times are export times, real timings stay in step metadata.
+
