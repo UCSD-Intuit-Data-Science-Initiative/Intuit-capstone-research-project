@@ -20,6 +20,7 @@ from pathlib import Path
 from ..models import MockModel
 from ..trace import Trace
 from .checker import check
+from .grader import grade
 from .player import load_family, play_family, version_of
 
 FAMILY = Path("data/families/pilot/F001/family.json")
@@ -82,17 +83,20 @@ def run_demo(family_path: Path = FAMILY, out: Path = OUT) -> list[dict]:
         writes = [e for e in ev if e["type"] == "record_write"]
         calcs = [e for e in ev if e["type"] == "calculation"]
         result = check(trace.data)
+        g = grade(trace.data, fam)
         rows.append({"agent": name, "version": vid, "stop": trace.data["stop_reason"],
                      "final": result["final"], "acceptable": "/".join(trace.data["expected_outcome"]),
-                     "stub_pass": result["passed"], "writes": len(writes),
+                     "stub_pass": result["passed"], "grader_pass": g["passed"], "decision": g["decision"],
+                     "writes": len(writes),
                      "calc_versions": ",".join(f"{c['id']}@v{c['record_version']}" for c in calcs),
+                     "labels": ", ".join(sorted({l["label"] for l in g["labels"] if l["severity"] > 0})) or "-",
                      "trace": str(path)})
     return rows
 
 
 def main() -> int:
     rows = run_demo()
-    cols = ["agent", "version", "stop", "final", "acceptable", "stub_pass", "writes", "calc_versions"]
+    cols = ["agent", "version", "final", "acceptable", "grader_pass", "calc_versions", "labels"]
     widths = {c: max(len(c), *(len(str(r[c])) for r in rows)) for c in cols}
     print("  ".join(c.ljust(widths[c]) for c in cols))
     for r in rows:
