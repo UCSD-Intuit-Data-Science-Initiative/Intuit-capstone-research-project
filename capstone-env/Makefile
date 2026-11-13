@@ -12,7 +12,7 @@ export GID := $(shell id -g)
 IMAGE      := d23-capstone:latest
 COMPOSE    := docker compose
 
-.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select family family-check run
+.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select family family-check run run-families demo
 
 ## build        – build the base image
 build:
@@ -75,3 +75,11 @@ family-check:
 ## run          – Stage 6 harness, e.g. make run ARGS="--model mock --out results/exp1" (see README)
 run:
 	$(COMPOSE) run --rm dev python -m capstone.cli run $(ARGS)
+
+## run-families – Stage 6 credit families, e.g. make run-families ARGS="--model mock --versions 3 --out results/fam1"
+run-families:
+	$(COMPOSE) run --rm dev python -m capstone.cli run-families $(ARGS)
+
+## demo         – Stage 6 local demo: four scripted mock agents through F001 (no keys, no cost)
+demo:
+	$(COMPOSE) run --rm dev python -m capstone.credit.demo

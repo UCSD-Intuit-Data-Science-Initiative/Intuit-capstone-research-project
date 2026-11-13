@@ -10,6 +10,9 @@ Event types (each has ``i``, ``type``, ``t`` seconds since start, ``turn``):
   agent        text, tool_calls, stop_reason, served_by, usage (latency, TTFT, tokens, cost)
   tool         name, args, executed, result, terminated, decision, db_before, db_after
   step_cap     the agent hit the per-turn tool-call limit
+Credit runs (capstone.credit) add: analyst, reaction, record_write, event_log, calculation,
+recommendation, evidence_request, final_action, tool_call (rejected calls) and stop, each with
+the record version at that moment.
 """
 
 from __future__ import annotations
@@ -98,7 +101,8 @@ def summarize(trace: dict) -> dict:
         final_action = None
 
     return {
-        "n_turns": sum(e["type"] == "customer" for e in events),
+        "n_turns": sum(e["type"] in ("customer", "analyst") for e in events),
+        "stop_reason": trace.get("stop_reason"),
         "n_model_calls": len(agent),
         "n_tool_calls": sum(e["executed"] for e in tools),
         "n_tool_calls_refused": sum(not e["executed"] for e in tools),

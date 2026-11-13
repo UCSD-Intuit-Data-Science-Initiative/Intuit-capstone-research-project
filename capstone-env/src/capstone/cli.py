@@ -59,13 +59,24 @@ def format_events(events: list[dict], width: int = 300) -> list[str]:
             lines.append(f"            -> {_clip(e['result'], width)}")
         elif e["type"] == "step_cap":
             lines.append(f"  STEP CAP  limit of {e['limit']} tool calls reached; turn ended")
+        elif e["type"] in ("analyst", "reaction"):
+            label = "ANALYST" if e["type"] == "analyst" else "REACTION"
+            lines.append(f"{label:<11} {_indent(_clip(e['content'], width * 4) if e['type'] == 'analyst' else e['content'])}")
+        elif e["type"] in ("record_write", "event_log", "calculation", "recommendation", "evidence_request",
+                           "final_action", "tool_call"):
+            ok = "accepted" if e.get("accepted") else f"REJECTED: {e.get('reason')}"
+            detail = {k: v for k, v in e.items() if k not in ("i", "type", "t", "turn", "tool_call_id",
+                                                               "accepted", "reason", "record_version")}
+            lines.append(f"  RECORD    {e['type']} v{e.get('record_version')} {ok}  {_clip(json.dumps(detail), width)}")
+        elif e["type"] == "stop":
+            lines.append(f"STOP        {e['reason']}  (final action: {e.get('final_action')}, record v{e.get('record_version')})")
     return lines
 
 
 def format_trace(t: dict, width: int = 300) -> str:
     m = t["model"]
     lines = [f"{t['run_id']}  [{t['status']}]",
-             f"case {t['case_id']} / {t['case_version']}  mode={t['mode']}  "
+             f"case {t.get('case_id')} / {t.get('case_version')}  mode={t.get('mode')}  "
              f"model={m['name']} ({m.get('model') or '-'})  repeat={t.get('repeat')}"]
     lines += format_events(t["events"], width)
     s = t.get("summary") or {}
@@ -140,6 +151,44 @@ def _send_to_langfuse(paths: list) -> int:
 
 def cmd_langfuse(args: argparse.Namespace) -> int:
     return _send_to_langfuse(args.paths)
+
+
+def cmd_run_families(args: argparse.Namespace) -> int:
+    from .credit.player import MODES as FAMILY_MODES, find_families, plan_family_runs, run_family_one
+    configs = load_model_configs(args.models_config)
+    try:
+        for name in args.model:
+            make_model(name, configs)
+    except (KeyError, ValueError) as exc:
+        sys.exit(f"error: {exc.args[0]}")
+    paths = find_families(args.families)
+    if not paths:
+        sys.exit("no family.json files found")
+    modes = args.mode or list(FAMILY_MODES)
+    specs = plan_family_runs(paths, args.versions, modes, args.model, args.k)
+    print(f"{len(paths)} families x {len(args.versions) if args.versions else 'all'} versions x {len(modes)} modes "
+          f"x {len(args.model)} models x {args.k} repeats = {len(specs)} runs -> {args.out}")
+    if args.dry_run:
+        return 0
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    settings = Settings(max_tool_calls=args.max_tool_calls, workers=args.workers, retries=args.retries)
+    (out / "experiment.json").write_text(json.dumps({
+        "command": sys.argv, "started_at": datetime.now().isoformat(timespec="seconds"),
+        "families": [str(p) for p in paths], "versions": args.versions, "modes": modes,
+        "models": {n: configs[n] for n in args.model}, "k": args.k, "settings": vars(settings),
+        "checker": args.checker,
+    }, indent=2), encoding="utf-8")
+    counts = run_experiment(specs, configs, out, settings, run_fn=run_family_one)
+    _, summary = score_experiment(out, args.checker, k=args.k)
+    print()
+    print_summary(summary, args.k, DEFAULT_GROUP_BY)
+    print(f"\nruns: {out / 'runs.csv'}\nsummary: {out / 'summary.csv'}\ntraces: {out / 'traces'}")
+    if args.langfuse:
+        _send_to_langfuse([trace_path(out, s) for s in specs if trace_path(out, s).exists()])
+    if counts["error"]:
+        print(f"{counts['error']} runs errored; rerun the same command to retry them")
+    return 1 if counts["error"] else 0
 
 
 def cmd_score(args: argparse.Namespace) -> int:
@@ -230,6 +279,22 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--langfuse", action="store_true",
                    help="also copy the finished traces to Langfuse for browsing (needs LANGFUSE_* keys)")
     r.set_defaults(func=cmd_run)
+
+    rf = sub.add_parser("run-families", help="run credit families x versions x modes x models x k, then score")
+    rf.add_argument("--families", nargs="+", default=["data/families"], help="family.json files or folders")
+    rf.add_argument("--versions", nargs="+", help="only these version ids (default: all 9)")
+    rf.add_argument("--mode", action="append", choices=("unscripted", "scripted"), help="default: both")
+    rf.add_argument("--model", action="append", required=True, help="name from the models config (repeatable)")
+    rf.add_argument("--k", type=int, default=1, help="repeats per family, version, mode and model")
+    rf.add_argument("--out", default="results/families", help="experiment folder; rerun to resume")
+    rf.add_argument("--workers", type=int, default=4)
+    rf.add_argument("--retries", type=int, default=2)
+    rf.add_argument("--max-tool-calls", type=int, default=DEFAULT_MAX_TOOL_CALLS, help="per agent turn")
+    rf.add_argument("--models-config", default=DEFAULT_MODELS_CONFIG)
+    rf.add_argument("--checker", default="capstone.credit.checker:check")
+    rf.add_argument("--dry-run", action="store_true")
+    rf.add_argument("--langfuse", action="store_true", help="also copy the finished traces to Langfuse")
+    rf.set_defaults(func=cmd_run_families)
 
     lf = sub.add_parser("langfuse", help="copy saved traces to Langfuse for browsing")
     lf.add_argument("paths", nargs="+", help="experiment folders, trace folders or trace files")

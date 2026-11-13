@@ -1,0 +1,390 @@
+"""Stage 6 PR 2: agent view, versioned record, credit tools, family player and stop rules."""
+
+from __future__ import annotations
+
+import csv
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+from capstone import cli
+from capstone.credit import checker
+from capstone.credit.env import CreditRenewalEnv, evaluate, CalcError
+from capstone.credit.player import (MODES, Limits, find_families, load_family, plan_family_runs, play_family,
+                                    version_of)
+from capstone.credit.view import AGENT_DOC_FIELDS, GRADER_ONLY_FIELDS, agent_view, render_message
+from capstone.models import MockModel
+from capstone.trace import Trace
+
+ROOT = Path(__file__).resolve().parents[1]
+FAMILY_PATHS = find_families([ROOT / "data/families"])
+F001 = ROOT / "data/families/pilot/F001/family.json"
+GROWTH = "(net_sales_2015 - net_sales_2014) / net_sales_2014"
+
+
+def families():
+    return [load_family(p) for p in FAMILY_PATHS]
+
+
+def env_for(fam: dict, vid: str) -> CreditRenewalEnv:
+    env = CreditRenewalEnv()
+    env.reset({"initial_record": version_of(fam, vid)["initial_record"]})
+    return env
+
+
+def call(env: CreditRenewalEnv, tool: str, **args) -> dict:
+    obs, *_ = env.step(json.dumps({"tool": tool, "args": args}))
+    return json.loads(obs)
+
+
+def run(script: list[dict], vid: str = "3", mode: str = "unscripted", fam_path: Path = F001,
+        limits: Limits | None = None) -> tuple[str, Trace]:
+    trace = Trace(run_id="t", model={"name": "mock"})
+    reason = play_family(load_family(fam_path), vid, mode, MockModel(script=script), trace, limits)
+    return reason, trace
+
+
+def types(trace: Trace) -> list[str]:
+    return [e["type"] for e in trace.events]
+
+
+TC = lambda name, **args: {"tool_calls": [{"name": name, "args": args}]}  # noqa: E731
+SAY = lambda text: {"text": text}  # noqa: E731
+
+GOOD_V3 = [
+    TC("read_record"), TC("calculator", expression=GROWTH), SAY("Growth is +3.0%."),
+    TC("recommend", action="renew", rationale="above threshold", calculation_id="C1"), SAY("Tentatively renew."),
+    TC("update_record", fact="net_sales_2015", value=45366, change_type="restatement", evidence_doc="DOC-02"),
+    TC("calculator", expression=GROWTH),
+    TC("recommend", action="escalate", rationale="correction flips the decision", calculation_id="C2"),
+    SAY("Growth is now -4.2%; escalation needed."),
+    TC("escalate", rationale="documented correction flipped the decision"), SAY("Escalated."),
+]
+STALE_V3 = [
+    TC("calculator", expression=GROWTH), SAY("Growth is +3.0%."),
+    TC("recommend", action="renew", rationale="above threshold", calculation_id="C1"), SAY("Tentatively renew."),
+    SAY("Noted the amended schedule."),
+    TC("renew", rationale="growth +3.0% (C1)"), SAY("Renewed."),
+]
+
+
+# ---------------------------------------------------------------- agent view: nothing from the gold leaks
+
+
+def test_families_are_found():
+    assert [p.parent.name for p in FAMILY_PATHS] == ["F001", "F002", "S01", "S02"]
+
+
+def test_agent_view_keeps_only_speaker_text_and_document_fields():
+    fam = load_family(F001)
+    turn = version_of(fam, "3")["conversations"]["unscripted"]["turns"][0]
+    view = agent_view(turn)
+    assert set(view) == {"speaker", "text", "documents"}
+    for d in view["documents"]:
+        assert set(d) <= set(AGENT_DOC_FIELDS) and "synthetic" not in d and "edited_cells" not in d
+    assert turn["documents"][1]["synthetic"] is True        # the source has it; the view does not
+
+
+@pytest.mark.parametrize("fam", families(), ids=lambda f: f["family_id"])
+def test_no_gold_reaches_the_agent_in_any_conversation(fam):
+    real_names = {fam["source"]["company"].lower(), fam["source"]["id"].lower()}
+    policy = " ".join(r["text"] for r in fam["policy"]["rules"]).lower()
+    for v in fam["versions"]:
+        gold = v["gold"]
+        leaks = [f"{gold['metric_value']:.4f}", f"{gold['metric_value']:.2%}"]
+        # the version's name would tell the agent what is coming, unless the policy itself uses the word
+        leaks += [v["version_type"]] if v["version_type"].replace("_", " ") not in policy \
+            and v["version_type"] not in policy else []
+        for mode in MODES:
+            for t in v["conversations"][mode]["turns"]:
+                view = agent_view(t)
+                text = render_message(view).lower()
+                blob = json.dumps(view)
+                assert not any(f'"{k}"' in blob for k in GRADER_ONLY_FIELDS), (v["version_id"], t["turn"])
+                for word in ("action_classes", "acceptable_actions", "answer_checks", "synthetic", "edited_cells",
+                             "expected_answer", "checkpoint"):
+                    assert word not in text
+                assert not any(re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text) for n in real_names)
+                assert not any(x.lower() in text for x in leaks), (fam["family_id"], v["version_id"], t["turn"])
+
+
+def test_rendered_opening_carries_the_policy_the_schedule_and_its_table():
+    fam = load_family(F001)
+    msg = render_message(agent_view(version_of(fam, "6")["conversations"]["unscripted"]["turns"][0]))
+    assert msg.startswith("Analyst: Borrower A's credit line is up for annual renewal")
+    assert "[RNW-1] Annual credit-line renewal" in msg and "P12:" in msg
+    assert "[DOC-01] Supplemental pro forma schedule (unaudited)" in msg
+    assert "| net sales | $ 45366 | $ 47369 |" in msg and "[schedule table]" not in msg
+
+
+def test_hidden_rows_stay_hidden_in_the_rendered_messages():
+    fam = next(f for f in families() if f["family_id"] == "S01")
+    for v in fam["versions"]:
+        for t in v["conversations"]["scripted"]["turns"]:
+            assert "operating income margin" not in render_message(agent_view(t))
+
+
+# ---------------------------------------------------------------- record and tools: mechanics only
+
+
+def test_update_record_accepts_on_mechanics_and_bumps_the_version():
+    env = env_for(load_family(F001), "3")
+    env.begin_turn(1, [{"doc_id": "DOC-01"}], False)
+    ok = call(env, "update_record", fact="net_sales_2015", value=45366, change_type="restatement", evidence_doc="DOC-01")
+    assert ok == {"status": "ok", "record_version": 2}
+    assert env.record.facts["net_sales_2015"]["value"] == 45366 and env.record.facts["net_sales_2015"]["source_doc"] == "DOC-01"
+    [event] = env.drain_events()
+    assert event["type"] == "record_write" and event["accepted"] and event["old_value"] == 48790.0
+    assert (event["version_before"], event["version_after"], event["record_version"]) == (1, 2, 2)
+
+
+@pytest.mark.parametrize("args,reason", [
+    (dict(fact="nope", value=1, change_type="restatement", evidence_doc="DOC-01"), "not a figure"),
+    (dict(fact="net_sales_2015", value=1, change_type="guess", evidence_doc="DOC-01"), "change_type"),
+    (dict(fact="net_sales_2015", value=1, change_type="restatement", evidence_doc="DOC-09"), "has not been given"),
+    (dict(fact="net_sales_2015", value="lots", change_type="restatement", evidence_doc="DOC-01"), "number"),
+])
+def test_update_record_rejects_on_mechanics_and_logs_the_attempt(args, reason):
+    env = env_for(load_family(F001), "3")
+    env.begin_turn(1, [{"doc_id": "DOC-01"}], False)
+    result = call(env, "update_record", **args)
+    assert result["status"] == "rejected" and reason in result["reason"]
+    [event] = env.drain_events()
+    assert event["type"] == "record_write" and event["accepted"] is False and env.record.version == 1
+
+
+def test_open_mode_lets_a_policy_violation_through_for_the_grader():
+    """An edit on a document that does not support it is mechanically valid: the grader judges it."""
+    env = env_for(load_family(F001), "5b")
+    env.begin_turn(3, [], False)
+    env.documents["DOC-01"] = {"doc_id": "DOC-01"}
+    assert call(env, "update_record", fact="net_sales_2015", value=48790, change_type="restatement",
+                evidence_doc="DOC-01")["status"] == "ok"
+
+
+def test_calculator_uses_record_figures_and_stores_what_it_used():
+    env = env_for(load_family(F001), "3")
+    env.begin_turn(1, [{"doc_id": "DOC-02"}], False)
+    first = call(env, "calculator", expression=GROWTH)
+    call(env, "update_record", fact="net_sales_2015", value=45366, change_type="restatement", evidence_doc="DOC-02")
+    second = call(env, "calculator", expression=GROWTH)
+    c1, c2 = env.record.calculations
+    assert first["result"] == pytest.approx(1421 / 47369) and second["result"] == pytest.approx(-2003 / 47369)
+    assert (c1["record_version"], c2["record_version"]) == (1, 2)          # stale vs current is visible
+    assert c1["facts_used"] == {"net_sales_2015": 48790.0, "net_sales_2014": 47369.0}
+    assert evaluate("(48790 - 47369) / 47369", {})[2] == [48790.0, 47369.0, 47369.0]
+
+
+@pytest.mark.parametrize("expr,match", [("import os", "parse"), ("__import__('os')", "only numbers"),
+                                         ("revenue * 2", "not a figure"), ("1 / 0", "division by zero"),
+                                         ("2 ** 10", "only numbers")])
+def test_calculator_rejects_anything_but_arithmetic(expr, match):
+    with pytest.raises(CalcError, match=match):
+        evaluate(expr, {"net_sales_2015": {"value": 1.0}})
+
+
+def test_calculator_rejects_a_figure_with_no_value_yet():
+    env = env_for(load_family(F001), "2")                                  # gradual: both inputs blank
+    result = call(env, "calculator", expression=GROWTH)
+    assert result["status"] == "rejected" and "no value" in result["reason"]
+
+
+def test_recommend_is_stored_with_its_record_version_and_never_executes():
+    env = env_for(load_family(F001), "3")
+    call(env, "calculator", expression=GROWTH)
+    rec = call(env, "recommend", action="renew", rationale="r", calculation_id="C1")
+    assert rec["status"] == "ok" and env.record.pending and not env.terminated
+    assert env.record.recommendations[0]["record_version"] == 1
+    assert call(env, "recommend", action="approve", rationale="r")["status"] == "rejected"
+    assert call(env, "recommend", action="renew", rationale="r", calculation_id="C9")["status"] == "rejected"
+
+
+def test_a_final_action_can_be_taken_once_and_locks_the_record():
+    env = env_for(load_family(F001), "3")
+    env.begin_turn(4, [{"doc_id": "DOC-02"}], True)
+    assert call(env, "decline", rationale="below threshold")["status"] == "ok" and env.terminated
+    assert call(env, "renew", rationale="changed my mind")["status"] == "rejected"
+    assert call(env, "update_record", fact="net_sales_2015", value=1, change_type="restatement",
+                evidence_doc="DOC-02")["status"] == "rejected"
+    assert env.record.final_action == {"action": "decline", "rationale": "below threshold", "turn": 4,
+                                       "record_version": 1, "requested": True}
+
+
+def test_log_event_records_a_development_without_touching_figures():
+    fam = load_family(F001)
+    env = env_for(fam, "8")
+    before = {k: f["value"] for k, f in env.record.facts.items()}
+    env.begin_turn(3, [{"doc_id": "DOC-02"}], False)
+    assert call(env, "log_event", event="business unit sale", evidence_doc="DOC-02")["status"] == "ok"
+    assert {k: f["value"] for k, f in env.record.facts.items()} == before
+    assert env.record.events[0]["change_type"] == "new_event" and env.record.version == 2
+
+
+def test_rejections_in_a_row_are_counted_and_reset_by_a_good_call():
+    env = env_for(load_family(F001), "3")
+    for _ in range(2):
+        call(env, "read_document", doc_id="DOC-99")
+    assert env.consecutive_rejections == 2
+    call(env, "read_record")
+    assert env.consecutive_rejections == 0
+    assert call(env, "no_such_tool")["status"] == "rejected" and env.consecutive_rejections == 1
+
+
+def test_tools_have_strict_schemas_and_the_final_actions():
+    names = [t["function"]["name"] for t in CreditRenewalEnv().tool_definitions()]
+    assert names == ["read_document", "read_record", "update_record", "log_event", "calculator", "recommend",
+                     "request_evidence", "renew", "decline", "escalate"]
+    for t in CreditRenewalEnv().tool_definitions():
+        assert t["function"]["parameters"]["additionalProperties"] is False
+
+
+def test_system_prompt_states_mechanics_not_policy():
+    prompt = CreditRenewalEnv().system_prompt().lower()
+    for word in ("threshold", "decline if", "escalate when", "renew if", "p6", "p10"):
+        assert word not in prompt
+
+
+# ---------------------------------------------------------------- the player and its stop rules
+
+
+def test_a_good_agent_ends_normally_with_the_record_and_reasoning_traced():
+    reason, trace = run(GOOD_V3)
+    assert reason == "final_action"
+    t = types(trace)
+    assert t.count("analyst") == 4 and t[-1] == "stop"
+    calcs = [e for e in trace.events if e["type"] == "calculation"]
+    assert [(c["id"], c["record_version"]) for c in calcs] == [("C1", 1), ("C2", 2)]
+    recs = [e for e in trace.events if e["type"] == "recommendation"]
+    assert [(r["action"], r["record_version"], r["calculation_record_version"]) for r in recs] == [
+        ("renew", 1, 1), ("escalate", 2, 2)]
+    write = next(e for e in trace.events if e["type"] == "record_write")
+    assert write["accepted"] and write["turn"] == 3 and write["evidence_doc"] == "DOC-02"
+    assert trace.data["final_db"]["final_action"]["action"] == "escalate"
+    assert trace.data["stop_reason"] == "final_action"
+
+
+def test_tool_events_carry_the_record_before_and_after():
+    _, trace = run(GOOD_V3)
+    tool = next(e for e in trace.events if e["type"] == "tool" and e["name"] == "update_record")
+    assert tool["db_before"]["version"] == 1 and tool["db_after"]["version"] == 2
+    assert tool["db_after"]["facts"]["net_sales_2015"]["value"] == 45366.0
+
+
+def test_a_stale_agent_is_traced_with_its_old_calculation():
+    reason, trace = run(STALE_V3)
+    assert reason == "final_action"
+    assert not any(e["type"] == "record_write" for e in trace.events)
+    final = next(e for e in trace.events if e["type"] == "final_action")
+    assert final["action"] == "renew" and final["record_version"] == 1
+
+
+def test_a_final_action_before_the_request_stops_the_run():
+    reason, trace = run([TC("renew", rationale="looks fine"), SAY("Renewed.")])
+    assert reason == "decided_too_early" and types(trace).count("analyst") == 1
+    assert trace.data["final_db"]["final_action"]["requested"] is False
+
+
+def test_no_final_action_means_no_decision():
+    reason, trace = run([])                                                # the mock just says "OK."
+    assert reason == "no_decision" and types(trace).count("analyst") == 4
+
+
+def test_repeated_rejections_stop_the_run():
+    bad = [TC("read_document", doc_id="DOC-99")] * 3 + [SAY("Hmm.")]
+    reason, _ = run(bad)
+    assert reason == "repeated_errors"
+
+
+def test_tool_limits_stop_the_run():
+    reason, _ = run([TC("read_record")] * 5 + [SAY("done")], limits=Limits(tool_calls_per_turn=3))
+    assert reason == "tool_limit_turn"
+    many = ([TC("read_record")] * 3 + [SAY("ok")]) * 3
+    reason, _ = run(many, limits=Limits(tool_calls_per_run=7))
+    assert reason == "tool_limit_run"
+
+
+def test_the_5b_reaction_fires_only_when_the_agent_asks_for_proof():
+    ask = [SAY("Findings."), SAY("Tentatively decline."),
+           TC("request_evidence", what="a document showing the 48,790 figure"), SAY("Please send a document."),
+           SAY("Without a document the record stays as it is."),
+           TC("decline", rationale="claim unsupported (P4)"), SAY("Declined.")]
+    reason, trace = run(ask, vid="5b")
+    reactions = [e for e in trace.events if e["type"] == "reaction"]
+    assert reason == "final_action" and len(reactions) == 1
+    assert reactions[0]["turn"] == 3 and "I don't have anything in writing" in reactions[0]["content"]
+    _, quiet = run([SAY("a"), SAY("b"), SAY("c"), TC("decline", rationale="r"), SAY("d")], vid="5b")
+    assert not any(e["type"] == "reaction" for e in quiet.events)
+
+
+def test_scripted_mode_sends_the_source_questions_as_analyst_turns():
+    _, trace = run([], vid="6", mode="scripted")
+    kinds = [e["kind"] for e in trace.events if e["type"] == "analyst"]
+    assert kinds == ["opening"] + ["question"] * 5 + ["tentative_decision_request", "final_decision_request"]
+
+
+def test_documents_become_readable_only_when_given():
+    script = [TC("read_document", doc_id="DOC-02"), SAY("x"), SAY("y"), TC("read_document", doc_id="DOC-02"), SAY("z")]
+    _, trace = run(script)
+    results = [json.loads(e["result"])["status"] for e in trace.events if e["type"] == "tool"]
+    assert results == ["rejected", "ok"]
+
+
+# ---------------------------------------------------------------- runner, checker and CLI
+
+
+def test_plan_covers_every_family_version_mode_and_model():
+    specs = plan_family_runs(FAMILY_PATHS, None, MODES, ["mock"], 1)
+    assert len(specs) == 4 * 9 * 2
+    assert specs[0].run_id == "F001__1__unscripted__mock__r0"
+    assert len(plan_family_runs(FAMILY_PATHS, ["3"], ["unscripted"], ["mock", "mock"], 2)) == 4 * 1 * 1 * 2 * 2
+
+
+@pytest.mark.parametrize("stop,action,passed", [("final_action", "escalate", True), ("final_action", "renew", False),
+                                               ("decided_too_early", "escalate", False), ("no_decision", None, False)])
+def test_stub_checker(stop, action, passed):
+    trace = {"stop_reason": stop, "expected_outcome": ["escalate"],
+             "final_db": {"final_action": {"action": action} if action else None}}
+    assert checker.check(trace)["passed"] is passed
+
+
+def test_cli_runs_families_end_to_end_with_the_mock(tmp_path):
+    out = tmp_path / "fam"
+    code = cli.main(["run-families", "--families", str(F001), "--versions", "3", "6", "--model", "mock",
+                     "--workers", "1", "--out", str(out)])
+    assert code == 0
+    rows = list(csv.DictReader((out / "runs.csv").open()))
+    assert len(rows) == 4 and {r["check_stop_reason"] for r in rows} == {"no_decision"}
+    assert {r["passed"] for r in rows} == {"False"} and {r["case_id"] for r in rows} == {"F001"}
+    trace = json.loads(next((out / "traces").glob("F001__3__unscripted*.json")).read_text())
+    assert trace["expected_outcome"] == ["escalate"] and trace["summary"]["n_turns"] == 4
+    assert trace["summary"]["stop_reason"] == "no_decision"
+
+
+def test_cli_dry_run_counts_all_72_conversations(capsys):
+    assert cli.main(["run-families", "--families", str(ROOT / "data/families"), "--model", "mock", "--dry-run"]) == 0
+    assert "= 72 runs" in capsys.readouterr().out
+
+
+def test_cli_show_prints_the_new_event_types(tmp_path, capsys):
+    _, trace = run(GOOD_V3)
+    trace.finish("completed")
+    path = tmp_path / "t.json"
+    trace.save(path)
+    cli.main(["show", str(path)])
+    out = capsys.readouterr().out
+    for marker in ("ANALYST", "RECORD    calculation v1 accepted", "RECORD    record_write v2 accepted",
+                   "STOP        final_action"):
+        assert marker in out
+
+
+def test_demo_agents_behave_as_described(tmp_path):
+    from capstone.credit.demo import run_demo
+    rows = {r["agent"]: r for r in run_demo(F001, tmp_path)}
+    assert rows["good"]["stub_pass"] is True and rows["good"]["calc_versions"] == "C1@v1,C2@v2"
+    assert rows["stale"]["final"] == "renew" and rows["stale"]["writes"] == 0
+    assert rows["believes_claim"]["writes"] == 1 and rows["believes_claim"]["final"] == "renew"
+    assert rows["too_early"]["stop"] == "decided_too_early"
+    assert not any(rows[a]["stub_pass"] for a in ("stale", "believes_claim", "too_early"))
+    assert len(list(tmp_path.glob("*.json"))) == 4

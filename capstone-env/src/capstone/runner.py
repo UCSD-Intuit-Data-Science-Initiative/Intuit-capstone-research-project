@@ -96,8 +96,11 @@ def run_one(spec: RunSpec, model_configs: dict[str, dict], settings: Settings) -
     return trace
 
 
-def run_experiment(specs: list[RunSpec], model_configs: dict[str, dict], out_dir: str | Path,
-                   settings: Settings, log: Callable[[str], None] = print) -> Counter:
+def run_experiment(specs: list, model_configs: dict[str, dict], out_dir: str | Path,
+                   settings: Settings, log: Callable[[str], None] = print,
+                   run_fn: Callable[..., Trace] | None = None) -> Counter:
+    """Run every spec not saved yet. ``run_fn(spec, model_configs, settings)`` defaults to ``run_one``."""
+    run_fn = run_fn or run_one
     out_dir = Path(out_dir)
     todo = [s for s in specs if not is_done(trace_path(out_dir, s))]
     log(f"{len(specs)} runs planned, {len(specs) - len(todo)} already saved, {len(todo)} to run")
@@ -106,7 +109,7 @@ def run_experiment(specs: list[RunSpec], model_configs: dict[str, dict], out_dir
         for n in range(settings.retries + 1):
             if n:
                 time.sleep(settings.retry_wait_s * n)
-            trace = run_one(spec, model_configs, settings)
+            trace = run_fn(spec, model_configs, settings)
             trace.data["attempt"] = n + 1
             if trace.data["status"] == "completed":
                 break
