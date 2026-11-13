@@ -1,0 +1,31 @@
+# What each --model name means. Fill in `model:` for the entries you use,
+# the same way .env holds the API keys (keys never go in this file).
+#
+#   provider  anthropic | openai | openrouter | mock
+#   model     the provider's model id; runs refuse to start while it is blank
+#   params    passed straight into the API call (max_tokens, effort, temperature, ...)
+#   price     USD per 1M tokens, used to compute cost; OpenRouter reports cost itself
+#
+# Add more entries freely (e.g. two Claude models); the entry name is what
+# shows up in run ids and results tables.
+
+claude:                 # API model (Anthropic Messages API, key: ANTHROPIC_API_KEY)
+  provider: anthropic
+  model:
+  params:
+    max_tokens: 16000
+  price: {input: null, output: null}
+
+openai:                 # OpenAI Chat Completions (key: OPENAI_API_KEY)
+  provider: openai
+  model:
+  params: {}
+  price: {input: null, output: null}
+
+open-weight:            # open-weight model served through OpenRouter (key: OPENROUTER_API_KEY)
+  provider: openrouter
+  model:
+  params: {}
+
+mock:                   # no key, no network: replies "OK." to every turn; for checking the pipeline
+  provider: mock
