@@ -51,6 +51,8 @@ make test           # run pytest suite
 | `make family` | Stage 4: build every family in `data/families/specs/` (9 versions × 2 modes each; see data/README.md) |
 | `make family-check` | Rebuild families in memory; fail if any generated file differs (writes nothing) |
 | `make run ARGS="..."` | Stage 6 harness: play cases through an agent and score them (see below) |
+| `make run-families ARGS="..."` | Stage 6: play the credit families through an agent and score them |
+| `make demo` | Stage 6: four scripted mock agents through F001, no keys needed |
 
 ## Project layout
 
@@ -100,6 +102,23 @@ Naming: the harness's `scripted` / `baseline` modes (turns one at a time vs all 
 not the families' `unscripted` / `scripted` modes (whether the analyst asks the calculation
 questions). PR 2 replaces the harness case format with the families, so only the families' names
 remain.
+
+### Credit families (PR 2)
+
+`src/capstone/credit/` plays the families in `data/families/` through the agent. The agent sees only
+the speaker, text and documents of each turn (`view.py`); it works on a versioned record
+(`record.py`) through ten tools (`env.py`: read_document, read_record, update_record, log_event,
+calculator, recommend, request_evidence, renew, decline, escalate). The environment checks only
+mechanics (the fact exists, the document was given, the decision is pending); policy is graded
+afterwards. The player (`player.py`) stops on a final action, a final action before it was asked
+for, tool or time limits, three rejected calls in a row, or the end of the script.
+
+```bash
+make demo                                                     # 4 scripted mock agents, table + traces
+make run-families ARGS="--model mock --versions 3 --out results/fam1"
+python -m capstone.cli run-families --model claude --families data/families/smoke/S01 --mode unscripted
+python -m capstone.cli show results/demo/traces/demo__good__F001__3.json
+```
 
 ### Commands
 
