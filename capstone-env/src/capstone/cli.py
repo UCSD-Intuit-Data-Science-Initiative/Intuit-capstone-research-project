@@ -22,7 +22,7 @@ from .env import make_env
 from .models import DEFAULT_MODELS_CONFIG, load_model_configs, make_model
 from .player import MODES, Conversation, load_case_file, load_cases
 from .runner import (DEFAULT_CHECKER, DEFAULT_GROUP_BY, Settings, format_table, plan_runs,
-                     run_experiment, score_experiment)
+                     run_experiment, score_experiment, trace_path)
 from .trace import Trace, load_trace
 
 
@@ -120,9 +120,26 @@ def cmd_run(args: argparse.Namespace) -> int:
     print()
     print_summary(summary, args.k, DEFAULT_GROUP_BY)
     print(f"\nruns: {out / 'runs.csv'}\nsummary: {out / 'summary.csv'}\ntraces: {out / 'traces'}")
+    if args.langfuse:
+        _send_to_langfuse([trace_path(out, s) for s in specs if trace_path(out, s).exists()])
     if counts["error"]:
         print(f"{counts['error']} runs errored; rerun the same command to retry them")
     return 1 if counts["error"] else 0
+
+
+def _send_to_langfuse(paths: list) -> int:
+    """Copy saved traces to Langfuse; the trace files stay the official record."""
+    from .observe import ObserveError, export_runs
+    try:
+        export_runs(paths)
+    except ObserveError as exc:
+        print(f"langfuse: not sent ({exc})")
+        return 1
+    return 0
+
+
+def cmd_langfuse(args: argparse.Namespace) -> int:
+    return _send_to_langfuse(args.paths)
 
 
 def cmd_score(args: argparse.Namespace) -> int:
@@ -210,7 +227,13 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--models-config", default=DEFAULT_MODELS_CONFIG)
     r.add_argument("--checker", default=DEFAULT_CHECKER, help="module:function returning a dict with 'passed'")
     r.add_argument("--dry-run", action="store_true", help="print the plan and stop")
+    r.add_argument("--langfuse", action="store_true",
+                   help="also copy the finished traces to Langfuse for browsing (needs LANGFUSE_* keys)")
     r.set_defaults(func=cmd_run)
+
+    lf = sub.add_parser("langfuse", help="copy saved traces to Langfuse for browsing")
+    lf.add_argument("paths", nargs="+", help="experiment folders, trace folders or trace files")
+    lf.set_defaults(func=cmd_langfuse)
 
     s = sub.add_parser("score", help="regrade saved traces and rewrite runs.csv / summary.csv")
     s.add_argument("out")
