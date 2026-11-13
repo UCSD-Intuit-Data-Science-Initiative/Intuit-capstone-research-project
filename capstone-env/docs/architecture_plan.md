@@ -44,8 +44,8 @@ several agents with review.
 |---|---|---|---|
 | 1 Harness core | `stage6/harness-core` | PR #5 open | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
 | 2 Credit environment + player | `stage6/credit-env` | PR #6 open (on top of #5) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
-| 3 Grader v0 | `stage6/grader` | built (on top of PR 2) | Labels from the whole trace; known-behaviour test agents |
-| 4 First real run | — | planned | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
+| 3 Grader v0 | `stage6/grader` | open (on top of PR 2) | Labels from the whole trace; known-behaviour test agents |
+| 4 First real run | `stage6/first-run` | built, not run yet (needs `ANTHROPIC_API_KEY`) | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
 | 5 Gates | — | later | Guarded mode; open vs guarded on the same families |
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
 | 7 Policy swap | — | when RNW-1-v2 is final | Specs point to RNW-1-v2; document dates; rule ids; record fields |
@@ -121,6 +121,17 @@ event index, note):
 Validation: scripted mock agents with known behaviour (good; keeps the stale figure; believes the
 claim; decides too early; skips the record update) must get exactly the expected labels.
 
+## PR 4: the first real run
+
+Model: `claude` in `configs/models.yaml` = `claude-opus-5-5`, effort `high` (its default is medium),
+thinking adaptive (always on for this model), max_tokens 16000, no server-side fallbacks (every answer
+must come from the named model; refusals are labelled `model_refusal`). Scope: S01 + F001, 9 versions
+× 2 modes, k = 1: 36 runs. Estimate (`make poc-estimate`): about $12-$77, deliberately high. Run with
+`make poc` (needs `ANTHROPIC_API_KEY` in `capstone-env/.env`; add `ARGS="--langfuse"` to copy runs to
+Langfuse); it writes `results/poc1/` and the page `docs/results/poc_run_1.md` (`cli report`).
+Cost lever not used yet: prompt caching (the system prompt, tools and early turns repeat every call)
+would cut input cost a lot, but the adapter's cost accounting would need cache prices first.
+
 ## PR 7 notes: switching to RNW-1-v2
 
 From Sophia's draft (`policy/rnw-1-v2`, 58 rules): the decision logic matches today's gold. Needed:
@@ -141,7 +152,8 @@ gold rule tags move from P-ids to the new ids (E3, F1, O1-O5…); correction doc
 ```bash
 git fetch && git checkout stage6/credit-env     # or main once PRs 1-2 are merged
 cd capstone-env && make build && make test      # 442 tests at the end of PR 2
-make demo                                        # 4 scripted mock agents through F001, no keys
+make demo                                        # 4 scripted mock agents through F001, graded
+make poc-estimate                                # cost of the first real run; make poc runs it
 make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model
 ```
 Then read CLAUDE.md (Stage 6 section) and start the next PR in the table above.

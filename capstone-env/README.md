@@ -120,6 +120,8 @@ whether it was fixed later. It writes `labels/<run>.json` and `labels.csv` next 
 ```bash
 make demo                                                     # 4 scripted mock agents, table + traces
 python -m capstone.cli grade results/fam1                     # relabel saved runs
+make poc-estimate                                             # first real run: rough cost (36 runs)
+make poc                                                      # run it (needs ANTHROPIC_API_KEY) + results page
 make run-families ARGS="--model mock --versions 3 --out results/fam1"
 python -m capstone.cli run-families --model claude --families data/families/smoke/S01 --mode unscripted
 python -m capstone.cli show results/demo/traces/demo__good__F001__3.json

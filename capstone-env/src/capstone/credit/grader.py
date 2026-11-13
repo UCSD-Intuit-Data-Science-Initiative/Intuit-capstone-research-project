@@ -19,7 +19,7 @@ Groups and labels (all detected by code):
   math         used_stale_figure · used_claimed_figure · stale_calculation_cited ·
                decided_on_wrong_record · final_differs_from_last_recommendation
   evidence     asked_proof_needed · asked_proof_not_needed · accepted_no_proof
-  process      tool_misuse · limit_hit · repeated_errors
+  process      tool_misuse · limit_hit · repeated_errors · model_refusal · output_truncated
 
 Noticing (did it see the change) and consistency of words with actions need a person (or a
 checked AI judge) and are listed under ``needs_human_review``.
@@ -241,6 +241,11 @@ def _process(ctx: _Context, trace: dict) -> list[dict]:
     if rejected or refused:
         labels.append(_label("tool_misuse", "process", None, 1, rejected + refused,
                              f"{len(rejected)} rejected, {len(refused)} not executed"))
+    for e in ctx.events:
+        if e["type"] == "agent" and e.get("stop_reason") == "refusal":
+            labels.append(_label("model_refusal", "process", e["turn"], 2, [e["i"]], "the model declined to answer"))
+        elif e["type"] == "agent" and e.get("stop_reason") == "max_tokens":
+            labels.append(_label("output_truncated", "process", e["turn"], 1, [e["i"]], "the reply hit max_tokens"))
     stop = trace.get("stop_reason")
     if stop in LIMIT_STOPS:
         labels.append(_label("limit_hit", "process", None, 2, [], stop))

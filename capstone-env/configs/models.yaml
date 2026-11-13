@@ -11,10 +11,14 @@
 
 claude:                 # API model (Anthropic Messages API, key: ANTHROPIC_API_KEY)
   provider: anthropic
-  model:
+  model: claude-opus-5-5  # first real run (Stage 6 PR 4); change here to test another model
+  # Thinking is always on (adaptive) for this model. Effort defaults to medium on it, so it is set
+  # explicitly. No server-side fallbacks: every answer must come from the model named above, and a
+  # refusal is recorded in the trace (stop_reason "refusal") and labelled by the grader.
   params:
     max_tokens: 16000
-  price: {input: null, output: null}
+    output_config: {effort: high}
+  price: {input: 4.00, output: 20.00}   # USD per 1M tokens (Anthropic list price, Nov 2026)
 
 openai:                 # OpenAI Chat Completions (key: OPENAI_API_KEY)
   provider: openai

@@ -73,7 +73,9 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
 - [ ] PR 3 grader v0 — `stage6/grader`, stacked on PR 2 (Nov 13): `credit/grader.py`, labels in 5 groups with
   the codebook fields, attempted / accepted / final invalid changes counted apart, stale-reasoning labels from
   the versioned record; default checker of run-families; `cli grade`; 461 tests.
-- [ ] PR 4 first real run
+- [ ] PR 4 first real run — `stage6/first-run`, stacked on PR 3 (Nov 13): claude = claude-opus-5-5 (effort high,
+  no fallbacks), `make poc-estimate` (36 runs, ~$12-$77), `make poc` (run + `docs/results/poc_run_1.md` via
+  `cli report`), grader labels model_refusal / output_truncated; 469 tests. Not run: no ANTHROPIC_API_KEY yet.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -323,4 +325,7 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - 2026-11-12 PR 1: langfuse 5.2.0 added (requirements.txt `>=5.2,<6`; lock regenerated with uv keeping every
   existing pin, adds langfuse + otel exporter/sdk 1.45.1 + protobuf). Export is post-hoc from saved traces
   (`observe.py`): Langfuse times are export times, real timings stay in step metadata.
+- 2026-11-13 Stage 6 PRs 3-4 built (Ishaan asked for both). Grader v0 is the default checker of run-families.
+  First real run set up on claude-opus-5-5 with effort high and no server-side fallbacks (a fallback would
+  answer with another model and blur which model was measured); not run, no API key on this machine yet.
 

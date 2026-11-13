@@ -227,7 +227,9 @@ def test_models_config_has_no_model_ids_filled_in():
     from capstone.models import load_model_configs
     configs = load_model_configs(ROOT / "configs" / "models.yaml")
     assert {c["provider"] for c in configs.values()} == {"anthropic", "openai", "openrouter", "mock"}
-    assert all(not c.get("model") for c in configs.values())
+    # Only `claude` is chosen (Stage 6 PR 4, the first real run); every other id stays blank until picked.
+    assert configs["claude"]["model"] == "claude-opus-5-5"
+    assert all(not c.get("model") for name, c in configs.items() if name != "claude")
 
 
 # ---- Provider adapters --------------------------------------------------------------
