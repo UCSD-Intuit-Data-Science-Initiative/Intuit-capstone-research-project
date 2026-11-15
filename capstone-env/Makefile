@@ -12,7 +12,7 @@ export GID := $(shell id -g)
 IMAGE      := d23-capstone:latest
 COMPOSE    := docker compose
 
-.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select family family-check
+.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select family family-check run
 
 ## build        – build the base image
 build:
@@ -71,3 +71,7 @@ family:
 ## family-check – Stage 4: rebuild families in memory, fail if any generated file differs (writes nothing)
 family-check:
 	$(COMPOSE) run --rm dev python -m capstone.data.family --check
+
+## run          – Stage 6 harness, e.g. make run ARGS="--model mock --out results/exp1" (see README)
+run:
+	$(COMPOSE) run --rm dev python -m capstone.cli run $(ARGS)

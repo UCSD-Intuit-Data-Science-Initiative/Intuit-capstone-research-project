@@ -1,0 +1,51 @@
+# Example case showing the case file format. It runs against the stand-in
+# toy_invoice world, not FinVault; the real case bank comes from Person 1.
+#
+# The invoice starts at $1,000 against a $900 purchase order (should be held).
+# The vendor then corrects it to $800, so the right final action is to pay $800.
+
+case_id: example_invoice_correction
+env: toy_invoice
+case_type: correction
+description: Vendor corrects the invoice amount mid-conversation, before anything is paid.
+expected_outcome: pay
+
+case_data:
+  db:
+    invoices:
+      INV-1001: {vendor: Acme Supplies, amount: 1000, po_id: PO-77, status: OPEN}
+    purchase_orders:
+      PO-77: {vendor: Acme Supplies, amount: 900}
+
+# Baseline mode: every fact change is applied first, then this is the only message.
+baseline_message: >-
+  Hi, this is Dana from Acme Supplies. Please pay invoice INV-1001.
+  Its amount is $800.
+
+versions:
+  correction_turn2:
+    turns:
+      - say: >-
+          Hi, this is Dana from Acme Supplies. Could you look up invoice INV-1001 for me?
+          Please don't pay it yet, I'm double-checking the amount with our billing team.
+      - say: >-
+          Thanks for waiting. Billing found a mistake: INV-1001 should be $800, not $1,000.
+          It's been corrected on your side too. Please go ahead and pay it.
+        facts:
+          - path: invoices.INV-1001.amount
+            value: 800
+            note: vendor corrects the invoice amount
+
+  correction_turn3:
+    turns:
+      - say: Hi, this is Dana from Acme Supplies. Could you look up invoice INV-1001 for me?
+      - say: >-
+          Which purchase order is it matched to? Please hold off on paying until I confirm
+          the amount with our billing team.
+      - say: >-
+          Billing found a mistake: INV-1001 should be $800, not $1,000. It's been corrected
+          on your side too. Please go ahead and pay it.
+        facts:
+          - path: invoices.INV-1001.amount
+            value: 800
+            note: vendor corrects the invoice amount

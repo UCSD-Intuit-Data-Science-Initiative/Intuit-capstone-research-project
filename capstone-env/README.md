@@ -50,6 +50,7 @@ make test           # run pytest suite
 | `make select` | Select candidates, split by company, check the gate |
 | `make family` | Stage 4: build every family in `data/families/specs/` (9 versions × 2 modes each; see data/README.md) |
 | `make family-check` | Rebuild families in memory; fail if any generated file differs (writes nothing) |
+| `make run ARGS="..."` | Stage 6 harness: play cases through an agent and score them (see below) |
 
 ## Project layout
 
@@ -66,3 +67,76 @@ tests/             ← pytest tests
 
 FinVault lives at `/opt/finvault` inside the image (read-only reference).
 It is already on `PYTHONPATH`; import with `from sandbox.sandbox_00 import ...`.
+
+## Experiment harness (Stage 6, in progress)
+
+Ported from Ivan's `setup/script-player-agent-loop` branch (PR 1 of the plan in
+`docs/architecture_plan.md`). It plays each case through the agent, records everything, and hands
+the record to the checker. It still runs the stand-in `toy_invoice` world; PR 2 connects it to the
+credit-renewal families in `data/families/`.
+
+```
+case file ─► script player ─► agent (LLM + tools) ─► environment
+                                   │
+                                   ▼
+                               trace JSON ─► checker ─► runs.csv / summary.csv
+                                   │
+                                   └─► Langfuse (optional copy, for browsing)
+```
+
+| File | Piece |
+|---|---|
+| `src/capstone/player.py` | Case file format, script player, `scripted` and `baseline` modes |
+| `src/capstone/agent.py` | Agent loop: model → tool calls → results → … until a text reply; tool-call cap per turn (default 15) |
+| `src/capstone/models.py` | `model.chat(system, messages, tools) → Reply`; adapters for Anthropic, OpenAI, OpenRouter, plus a no-key `mock` |
+| `src/capstone/trace.py` | Trace format and saving (one JSON per run): the official record the grader reads |
+| `src/capstone/runner.py` | Repeat runner, results tables, pass^k |
+| `src/capstone/cli.py` | `run`, `score`, `show`, `chat`, `langfuse` |
+| `src/capstone/env.py` | Environment interface + `toy_invoice`, a stand-in world |
+| `src/capstone/checker.py` | Placeholder `check(trace)` until the grader lands (PR 3) |
+| `src/capstone/observe.py` | Optional copy of finished traces to Langfuse |
+
+Naming: the harness's `scripted` / `baseline` modes (turns one at a time vs all facts at once) are
+not the families' `unscripted` / `scripted` modes (whether the analyst asks the calculation
+questions). PR 2 replaces the harness case format with the families, so only the families' names
+remain.
+
+### Commands
+
+```bash
+# all cases × both modes × 4 repeats, then score; rerun the same command to resume after a crash
+python -m capstone.cli run --cases cases/ --model claude --k 4 --out results/exp1
+python -m capstone.cli run --model mock --k 2 --out results/smoke     # no keys: checks the pipeline
+python -m capstone.cli run ... --dry-run                              # print how many runs, then stop
+python -m capstone.cli run ... --langfuse                             # also copy the runs to Langfuse
+
+python -m capstone.cli score results/exp1          # regrade saved traces (e.g. after the checker changes)
+python -m capstone.cli show results/exp1/traces/<run_id>.json        # read a conversation by hand
+python -m capstone.cli langfuse results/exp1       # copy saved runs to Langfuse later
+python -m capstone.cli chat --case cases/example_invoice_correction.yaml --model claude   # type turns yourself
+```
+
+### Models
+
+`configs/models.yaml` maps each `--model` name to a provider, model id, API params and prices. The
+model ids are deliberately blank; fill in `model:` for the entries you use (keys stay in `.env`). A
+run refuses to start while the id is blank. Cost comes from `price` (USD per 1M tokens), or from
+OpenRouter's own usage report.
+
+### Outputs
+
+`<out>/traces/<case>__<version>__<mode>__<model>__r<repeat>.json` holds the run metadata and
+settings, the system prompt and tools, the database at the start and end, and every event in order:
+messages, injected fact changes (old → new), agent messages with latency, TTFT, tokens and cost, and
+tool calls with arguments, result and the database before and after. `<out>/runs.csv` has one row
+per run; `<out>/summary.csv` has pass^1…pass^k per model × mode × case type × version.
+`<out>/experiment.json` records the command and settings.
+
+### Langfuse (optional)
+
+Put `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env` (see `.env.example`), then add
+`--langfuse` to `run`, or send saved runs with `python -m capstone.cli langfuse results/<exp>`.
+Each run becomes one Langfuse trace: messages as events, model calls as generations (tokens, cost),
+tool calls as tool steps. The trace files stay the official record; Langfuse is a copy for
+browsing, and a run without keys still completes and saves its traces.
+
