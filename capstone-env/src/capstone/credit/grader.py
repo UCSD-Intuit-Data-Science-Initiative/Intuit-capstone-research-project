@@ -209,11 +209,21 @@ def _math(ctx: _Context) -> list[dict]:
                                      f"{c['id']} used the {claim[1].replace('_', ' ')} figure {v}"))
                 break
     recs = [e for e in ctx.events if e["type"] == "recommendation" and e.get("accepted")]
+    tool_calls = {e["id"]: e for e in ctx.events if e["type"] == "tool"}
     for r in recs:
-        cv = r.get("calculation_record_version")
-        if cv is not None and cv < r["record_version"]:
-            labels.append(_label("stale_calculation_cited", "math", r["turn"], 1, [r["i"]],
-                                 f"{r['id']} rests on {r['calculation_id']} from record v{cv}; the record is v{r['record_version']}"))
+        calc = calcs.get(r.get("calculation_id"))
+        if calc is None:
+            continue
+        # Stale means a figure the calculation used has changed since, not that the record version moved
+        # (logging an event bumps the version without changing any figure). Compare with the record as it
+        # was when the recommendation was made.
+        record = (tool_calls.get(r.get("tool_call_id")) or {}).get("db_before", {}).get("facts", {})
+        changed = [(k, v, record[k]["value"]) for k, v in calc.get("facts_used", {}).items()
+                   if k in record and not close(record[k]["value"], v)]
+        if changed:
+            what = "; ".join(f"{k} = {old} there, {new} in the record now" for k, old, new in changed)
+            labels.append(_label("stale_calculation_cited", "math", r["turn"], 1, [r["i"], calc["i"]],
+                                 f"{r['id']} rests on {calc['id']}, which used {what}"))
     final_ev = next((e for e in ctx.events if e["type"] == "final_action" and e.get("accepted")), None)
     if final_ev is not None:
         tool = next((e for e in reversed(ctx.events[:final_ev["i"]]) if e["type"] == "tool"), None)

@@ -130,7 +130,19 @@ def test_a_recommendation_resting_on_an_older_record_version_is_flagged():
               TC("escalate", rationale="flip"), SAY("d")]
     g = graded(script, "3")
     stale = label(g, "stale_calculation_cited")
-    assert stale["turn"] == 3 and "record v1" in stale["note"] and "record is v2" in stale["note"]
+    assert stale["turn"] == 3 and "C1" in stale["note"]
+    assert "net_sales_2015 = 48790.0 there, 45366.0 in the record now" in stale["note"]
+
+
+def test_citing_a_calculation_after_an_event_that_changed_no_figure_is_not_stale():
+    """v8: logging the new event bumps the record version, but every figure C1 used is unchanged (P11)."""
+    script = [TC("calculator", expression=GROWTH), SAY("a"),
+              TC("recommend", action="decline", rationale="below", calculation_id="C1"), SAY("b"),
+              TC("log_event", event="sale of a business unit", evidence_doc="DOC-02"),
+              TC("recommend", action="decline", rationale="figures unchanged", calculation_id="C1"), SAY("c"),
+              TC("decline", rationale="below"), SAY("d")]
+    g = graded(script, "8")
+    assert g["passed"] and flagged(g) == []
 
 
 def test_answering_the_hypothetical_with_the_claimed_figure_is_fine():
