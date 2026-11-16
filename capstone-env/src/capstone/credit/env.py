@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import operator
 from typing import Any, Callable
 
@@ -66,6 +67,47 @@ TOOLS = [
     *[_tool(a, f"Final action: {a} the credit line. Can be taken once, cannot be undone, ends the review.",
             {"rationale": _STR}) for a in FINAL_ACTIONS],
 ]
+
+PARAMETERS = {t["function"]["name"]: t["function"]["parameters"] for t in TOOLS}
+# The trace event a call's attempt is logged as, accepted or rejected (Rule 4: every attempt is logged).
+ATTEMPT_EVENT = {"update_record": "record_write", "log_event": "event_log", "calculator": "calculation",
+                 "recommend": "recommendation", **{a: "final_action" for a in FINAL_ACTIONS}}
+
+
+class ToolError(RuntimeError):
+    """A tool failed inside the harness: our bug, not the agent's. The run ends as an error, ungraded."""
+
+
+def _type_ok(value: Any, spec: dict) -> bool:
+    if spec.get("type") == "string":
+        return isinstance(value, str)
+    if spec.get("type") == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    return True
+
+
+def check_args(name: str, args: Any) -> str | None:
+    """Why a call's arguments break the tool's schema, or None if they fit it."""
+    if not isinstance(args, dict):
+        return "arguments must be a JSON object"
+    schema = PARAMETERS[name]
+    props, required = schema["properties"], schema["required"]
+    extra = sorted(set(args) - set(props))
+    if extra:
+        return f"unexpected argument(s) {extra}; {name} takes {sorted(props)}"
+    missing = [k for k in required if args.get(k) is None]
+    if missing:
+        return f"missing argument(s) {missing}"
+    for key, value in args.items():
+        spec = props[key]
+        if value is None and key not in required:
+            continue  # an optional argument sent as null counts as absent
+        if not _type_ok(value, spec):
+            return f"{key} must be a {'finite ' if spec['type'] == 'number' else ''}{spec['type']}"
+        if "enum" in spec and value not in spec["enum"]:
+            return f"{key} must be one of {spec['enum']}"
+    return None
+
 
 _OPS: dict[type, Callable] = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
                               ast.Div: operator.truediv, ast.USub: operator.neg, ast.UAdd: operator.pos}
@@ -169,27 +211,43 @@ class CreditRenewalEnv:
     # ---- tools
     def step(self, action: str) -> tuple[str, float, bool, bool, dict]:
         call = json.loads(action)
-        name, args = call.get("tool"), call.get("args") or {}
+        name, args = call.get("tool"), call.get("args")
+        args = {} if args is None else args
         handler = self._tools.get(name)
         if handler is None:
             result = self._reject("tool_call", f"unknown tool {name!r}", tool=name)
+        elif (problem := check_args(name, args)) is not None:
+            # The agent's mistake: logged as a rejected attempt of that tool, with what it sent.
+            event = ATTEMPT_EVENT.get(name, "tool_call")
+            props = PARAMETERS[name]["properties"]
+            sent: dict[str, Any] = {"tool": name} if event == "tool_call" else {}
+            if isinstance(args, dict):
+                sent.update({k: v for k, v in args.items() if k in props})
+                if set(args) - set(props):
+                    sent["unexpected_args"] = {k: v for k, v in args.items() if k not in props}
+            else:
+                sent["args"] = args
+            result = self._reject(event, problem, **sent)
         else:
+            # Arguments fit the schema, so an exception here is a harness bug: end the run as an
+            # error instead of reporting it to the agent (and the grader) as the agent's misuse.
             try:
                 result = handler(**args)
-            except TypeError as exc:  # missing or unexpected arguments
-                result = self._reject("tool_call", str(exc), tool=name)
+            except Exception as exc:
+                raise ToolError(f"tool {name!r} failed inside the harness: {exc!r}") from exc
         if result.get("status") == "rejected":
             self.consecutive_rejections += 1
         else:
             self.consecutive_rejections = 0
         return json.dumps(result), 0.0, self.terminated, False, {}
 
-    def _emit(self, type: str, **fields: Any) -> None:
-        self._events.append({"type": type, "record_version": self.record.version, **fields})
+    # Positional-only names, so an agent field such as log_event's ``event`` cannot collide with them.
+    def _emit(self, _type: str, /, **fields: Any) -> None:
+        self._events.append({"type": _type, "record_version": self.record.version, **fields})
 
-    def _reject(self, event: str, reason: str, **fields: Any) -> dict:
-        self._emit(event, accepted=False, reason=reason, **fields)
-        return {"status": "rejected", "reason": reason}
+    def _reject(self, _event: str, _reason: str, /, **fields: Any) -> dict:
+        self._emit(_event, accepted=False, reason=_reason, **fields)
+        return {"status": "rejected", "reason": _reason}
 
     def _read_document(self, doc_id: str) -> dict:
         if doc_id not in self.documents:

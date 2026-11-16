@@ -111,7 +111,8 @@ def run_experiment(specs: list, model_configs: dict[str, dict], out_dir: str | P
                 time.sleep(settings.retry_wait_s * n)
             trace = run_fn(spec, model_configs, settings)
             trace.data["attempt"] = n + 1
-            if trace.data["status"] == "completed":
+            # Retries are for model / API failures; a bug in our own tool code fails the same way again.
+            if trace.data["status"] == "completed" or trace.data.get("error_kind") == "tool_bug":
                 break
         trace.save(trace_path(out_dir, spec))
         return spec, trace

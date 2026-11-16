@@ -36,7 +36,7 @@ from typing import Sequence
 from ..agent import DEFAULT_MAX_TOOL_CALLS, run_agent_turn
 from ..models import Model, make_model
 from ..trace import Trace
-from .env import CreditRenewalEnv
+from .env import CreditRenewalEnv, ToolError
 from .view import agent_view, render_message
 
 MODES = ("unscripted", "scripted")
@@ -186,6 +186,11 @@ def run_family_one(spec: FamilyRunSpec, model_configs: dict[str, dict], settings
         model = make_model(spec.model, model_configs)
         play_family(fam, spec.version_id, spec.mode, model, trace, limits)
         trace.finish("completed")
+    except ToolError:
+        # Our bug, not the model's or the API's: it would fail the same way again, so the runner does
+        # not retry it (a retry would only spend more model calls). The run is an error, never graded.
+        trace.set(error_kind="tool_bug")
+        trace.finish("error", error=traceback.format_exc())
     except Exception:
         trace.finish("error", error=traceback.format_exc())
     return trace
