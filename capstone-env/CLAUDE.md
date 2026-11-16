@@ -73,8 +73,7 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
 - [x] PR 3 grader v0 — merged as #7 (Nov 15): `credit/grader.py`, labels in 5 groups with
   the codebook fields, attempted / accepted / final invalid changes counted apart, stale-reasoning labels from
   the versioned record; default checker of run-families; `cli grade`; 461 tests.
-- [ ] PR 4 first real run — branch `stage6/first-run` (Ishaan, Nov 13): built, not run yet (needs
-  `ANTHROPIC_API_KEY`), no PR opened. Rebase it onto main after `stage6/pre-pr4-fixes` merges.
+- [ ] PR 4 first real run (next)
 - [ ] Pre-PR 4 fixes — branch `stage6/pre-pr4-fixes` (Nov 16): the five issues from the PR 2/3 reviews
   (Nov 15): 5b `evidence_requested` ending; grader refuses a family file that changed since the run
   (`case_hash`, override `--allow-family-change`); `wrong_change_type_at_end` final failure;

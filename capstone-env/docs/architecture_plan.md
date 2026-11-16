@@ -45,7 +45,7 @@ several agents with review.
 | 1 Harness core | `stage6/harness-core` | merged (#5, Nov 15) | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
 | 2 Credit environment + player | `stage6/credit-env` | merged (#6, Nov 15) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
 | 3 Grader v0 | `stage6/grader` | merged (#7, Nov 15) | Labels from the whole trace; known-behaviour test agents |
-| 4 First real run | `stage6/first-run` | built, not run yet (needs `ANTHROPIC_API_KEY`) | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
+| 4 First real run | — | next | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
 | 5 Gates | — | later | Guarded mode; open vs guarded on the same families |
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
 | 7 Policy swap | — | when RNW-1-v2 is final | Specs point to RNW-1-v2; document dates; rule ids; record fields |
