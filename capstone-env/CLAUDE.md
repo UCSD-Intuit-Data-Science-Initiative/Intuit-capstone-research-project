@@ -74,11 +74,12 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
   the codebook fields, attempted / accepted / final invalid changes counted apart, stale-reasoning labels from
   the versioned record; default checker of run-families; `cli grade`; 461 tests.
 - [ ] PR 4 first real run — branch `stage6/first-run` (Ishaan, Nov 13): built, not run yet (needs
-  `ANTHROPIC_API_KEY`), no PR opened. Open from the PR 2/3 reviews (Nov 15), to fix first since they change real results:
-  5b can't end on `request_evidence` (graded `no_decision` though gold accepts it); grader ignores the trace's
-  `case_hash` (regrading after `make family` silently uses new gold); `wrong_change_type` still passes
-  (`recovered=True`); `stale_calculation_cited` fires after an event log that changed no figure; Python errors
-  in a tool are reported as rejected calls and graded `tool_misuse`.
+  `ANTHROPIC_API_KEY`), no PR opened. Rebase it onto main after `stage6/pre-pr4-fixes` merges.
+- [ ] Pre-PR 4 fixes — branch `stage6/pre-pr4-fixes` (Nov 16): the five issues from the PR 2/3 reviews
+  (Nov 15): 5b `evidence_requested` ending; grader refuses a family file that changed since the run
+  (`case_hash`, override `--allow-family-change`); `wrong_change_type_at_end` final failure;
+  `stale_calculation_cited` by figures, not versions; schema-checked tool calls, tool bugs are ungraded
+  errors. Oracle test over all 72 conversations. Details: docs/architecture_plan.md "Fixed before PR 4".
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -241,8 +242,8 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - Team: evidence for a correction is any document naming the figure (RNW-1 P3), not audited filings only
   (Ivan's credit_renewal_v0); confirm. Turn on Ivan's stricter checks (commented out in family.py)? Sums up to
   5 terms (Jiya) or the Nov 1 a ± b = c rule (frees about 2 more pilot tables and 3 held-out)?
-- Harness (Stage 6): how a reaction fires (the `request_evidence` tool only, or asking in plain text too); limits
-  (15 tool calls/turn, 60/run, 120 s/turn, 3 rejected calls in a row: proposed); which model and keys for PR 4;
+- Harness (Stage 6): limits (15 tool calls/turn, 60/run, 120 s/turn, 3 rejected calls in a row: proposed); which
+  model and keys for PR 4;
   Langfuse (chosen) vs LangSmith; multi-agent single writer vs proposals. Each run starts fresh (decided).
 
 ## Decision log
@@ -330,4 +331,13 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - 2026-11-12 PR 1: langfuse 5.2.0 added (requirements.txt `>=5.2,<6`; lock regenerated with uv keeping every
   existing pin, adds langfuse + otel exporter/sdk 1.45.1 + protobuf). Export is post-hoc from saved traces
   (`observe.py`): Langfuse times are export times, real timings stay in step metadata.
+- 2026-11-16 Pre-PR 4 fixes (Sophia, from the Nov 15 reviews of PRs 2-3), on `stage6/pre-pr4-fixes`:
+  (A) Asking for proof means the `request_evidence` tool only; a plain-text request is left for human review
+  (settles the open question). (B) `request_evidence` in reply to the final-decision request ends the run as
+  `evidence_requested`, graded with the gold's class for it (valid in 5b per RNW-1 P4/P7, `unnecessary_block`
+  elsewhere). (C) Pass rule changed: a correction left with the wrong change type (`new_information` vs
+  `restatement`) is a final record failure, `wrong_change_type_at_end`, so the run fails (mentor requirement:
+  tell a corrected past error from new information). (D) A run is graded only against the family file it was
+  played with: a `case_hash` mismatch is refused unless `--allow-family-change`, which marks `family_changed`
+  (no frozen copy of family files for now). Pass rates from before and after (C) are not comparable.
 

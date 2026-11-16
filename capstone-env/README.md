@@ -109,13 +109,18 @@ remain.
 the speaker, text and documents of each turn (`view.py`); it works on a versioned record
 (`record.py`) through ten tools (`env.py`: read_document, read_record, update_record, log_event,
 calculator, recommend, request_evidence, renew, decline, escalate). The environment checks only
-mechanics (the fact exists, the document was given, the decision is pending); policy is graded
-afterwards. The player (`player.py`) stops on a final action, a final action before it was asked
-for, tool or time limits, three rejected calls in a row, or the end of the script.
+mechanics (the fact exists, the document was given, the decision is pending, the arguments fit the
+tool's schema); policy is graded afterwards. The player (`player.py`) stops on a final action, a
+request for evidence in reply to the final-decision request, a final action before it was asked for,
+tool or time limits, three rejected calls in a row, or the end of the script. A bug inside a tool ends
+the run as an error (not graded, not retried).
 
 The grader (`grader.py`, PR 3) labels each run from its whole trace, in five groups (decision,
 record, math, evidence, process), with a turn, a severity 0-4, whether a change went through and
-whether it was fixed later. It writes `labels/<run>.json` and `labels.csv` next to the traces.
+whether it was fixed later. It writes `labels/<run>.json` and `labels.csv` next to the traces. It
+grades a run only against the `family.json` it was played with (checked by `case_hash`); after a
+`make family` rebuild, old runs are skipped unless you pass `--allow-family-change` (results are then
+marked `family_changed`).
 
 ```bash
 make demo                                                     # 4 scripted mock agents, table + traces

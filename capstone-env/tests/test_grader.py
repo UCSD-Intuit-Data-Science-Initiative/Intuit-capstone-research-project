@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -233,6 +234,71 @@ def test_every_label_has_the_codebook_fields(mode):
         assert set(l) == {"label", "group", "turn", "severity", "accepted", "recovered", "evidence", "note"}
         assert l["group"] in ("decision", "record", "math", "evidence", "process") and 0 <= l["severity"] <= 4
     assert len(g["needs_human_review"]) == 2
+
+
+# ---------------------------------------------------------------- no false failures on the correct path
+
+
+def _metric_facts(fam: dict, version: dict) -> tuple[str, str]:
+    """Record names of the metric's current and prior figures (the program's first two numbers)."""
+    cur, prior = (float(x) for x in re.findall(r"(?<![#\d.])\d+(?:\.\d+)?", fam["metric_program"])[:2])
+    final = version["expected_final_record"]["facts"]
+    pick = lambda n: next(k for k, f in final.items() if f["value"] is not None and abs(f["value"] - n) < 1e-6)  # noqa: E731
+    return pick(cur), pick(prior)
+
+
+def oracle_script(fam: dict, version: dict, mode: str) -> list[dict]:
+    """An agent that does exactly what the gold expects, turn by turn: the writes and events of the
+    expected final record when their documents arrive, a calculation whenever both inputs are known,
+    the checkpoint's valid tentative step, and an acceptable final action when asked."""
+    cur, prior = _metric_facts(fam, version)
+    expected = version["expected_final_record"]
+    values = {k: f["value"] for k, f in version["initial_record"]["facts"].items()}
+    script, n_calc = [], 0
+    for turn in version["conversations"][mode]["turns"]:
+        docs = {d["doc_id"] for d in turn.get("documents", [])}
+        calls = []
+        for c in expected["change_log"]:
+            if c["evidence_doc"] in docs:
+                calls.append({"name": "update_record", "args": {k: c[k] for k in ("fact", "change_type", "evidence_doc")}
+                              | {"value": c["new_value"]}})
+                values[c["fact"]] = c["new_value"]
+        calls += [{"name": "log_event", "args": {"event": e.get("event", "new event"), "evidence_doc": e["evidence_doc"]}}
+                  for e in expected["events"] if e["evidence_doc"] in docs]
+        if values[cur] is not None and values[prior] is not None:
+            calls.append({"name": "calculator", "args": {"expression": f"({cur} - {prior}) / {prior}"}})
+            n_calc += 1
+        valid = [a for a, c in ((turn.get("checkpoint") or {}).get("action_classes") or {}).items() if c == "valid"]
+        if turn["kind"] == "final_decision_request":
+            act = next(a for a in version["gold"]["acceptable_actions"] if a in ("renew", "decline", "escalate"))
+            calls.append({"name": act, "args": {"rationale": "per policy"}})
+        elif valid == ["request_evidence"]:
+            calls.append({"name": "request_evidence", "args": {"what": "the missing figure"}})
+        elif turn["kind"] == "tentative_decision_request" and valid:
+            calls.append({"name": "recommend", "args": {"action": valid[0], "rationale": "per policy"}
+                          | ({"calculation_id": f"C{n_calc}"} if n_calc else {})})
+        if calls:
+            script.append({"tool_calls": calls})
+        script.append({"text": "Done for this turn."})
+    return script
+
+
+ORACLE_CASES = [(p, v["version_id"], m) for p in sorted((ROOT / "data/families").rglob("family.json"))
+                for v in load_family(p)["versions"] for m in ("unscripted", "scripted")]
+
+
+def test_the_oracle_covers_every_conversation():
+    assert len(ORACLE_CASES) == 72
+
+
+@pytest.mark.parametrize("path,vid,mode", ORACLE_CASES,
+                         ids=[f"{p.parent.name}-v{v}-{m}" for p, v, m in ORACLE_CASES])
+def test_an_agent_that_follows_the_gold_passes_with_no_problem_labels(path, vid, mode):
+    """Guards against false failures: any grader change that fails correct behaviour breaks this."""
+    fam = load_family(path)
+    g = graded(oracle_script(fam, next(v for v in fam["versions"] if v["version_id"] == vid), mode), vid, mode, path)
+    assert g["passed"] and g["decision"] == "valid" and flagged(g) == [], (g["decision"], flagged(g))
+    assert (g["attempted_invalid_changes"], g["accepted_invalid_changes"], g["final_record_failures"]) == (0, 0, [])
 
 
 # ---------------------------------------------------------------- wired into the runner and the CLI
