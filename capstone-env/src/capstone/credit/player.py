@@ -5,6 +5,9 @@ to ``read_document`` and as evidence. The agent may call tools until it replies 
 stops at the first of:
 
   final_action        a final action after the final-decision request (the normal end)
+  evidence_requested  no final action, but ``request_evidence`` in reply to the final-decision request
+                      (RNW-1 P4/P7: asking for proof instead of deciding; the grader reads its class from
+                      the gold, e.g. valid in 5b and unnecessary_block elsewhere)
   decided_too_early   a final action before it
   tool_limit_turn     more tool calls in one turn than ``Limits.tool_calls_per_turn``
   tool_limit_run      more tool calls in the run than ``Limits.tool_calls_per_run``
@@ -41,8 +44,8 @@ from .view import agent_view, render_message
 
 MODES = ("unscripted", "scripted")
 DEFAULT_FAMILIES = "data/families"
-STOP_REASONS = ("final_action", "decided_too_early", "tool_limit_turn", "tool_limit_run", "time_limit",
-                "repeated_errors", "no_decision")
+STOP_REASONS = ("final_action", "evidence_requested", "decided_too_early", "tool_limit_turn", "tool_limit_run",
+                "time_limit", "repeated_errors", "no_decision")
 
 
 @dataclass
@@ -93,6 +96,8 @@ def _agent_turn(model: Model, env: CreditRenewalEnv, messages: list, trace: Trac
         return "time_limit"
     if env.consecutive_rejections >= limits.rejected_in_a_row:
         return "repeated_errors"
+    if env.final_requested and env.requested_evidence_in(turn):
+        return "evidence_requested"
     return None
 
 

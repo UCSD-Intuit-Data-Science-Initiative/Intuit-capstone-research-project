@@ -85,7 +85,7 @@ class _Context:
                     self.doc_turn.setdefault(d, e["turn"])
         self.claims = [(t["turn"], t["kind"], t["claimed_value"]) for t in self.turns if "claimed_value" in t]
         # A run cut short (too early, limits, errors) never saw the later documents: its final record is not graded.
-        self.truncated = trace.get("stop_reason") not in ("final_action", "no_decision")
+        self.truncated = trace.get("stop_reason") not in ("final_action", "evidence_requested", "no_decision")
         final_db = trace.get("final_db") or {}
         self.final_facts = final_db.get("facts", {})
         self.final_events = final_db.get("events", [])
@@ -112,6 +112,14 @@ def _decision(ctx: _Context, trace: dict) -> list[dict]:
         cls = ctx.gold["action_classes"][ctx.final["action"]]
         note = f"{ctx.final['action']}; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
         return [_label(cls, "decision", ctx.final["turn"], DECISION_SEVERITY[cls], idx, note)]
+    if stop == "evidence_requested":
+        # Asked for proof in reply to the final-decision request (RNW-1 P4/P7); the gold says whether
+        # that was right here (valid in 5b) or an unnecessary block.
+        turn = next((e["turn"] for e in reversed(ctx.events) if e["type"] == "stop"), None)
+        asks = [e["i"] for e in ctx.events if e["type"] == "evidence_request" and e["turn"] == turn]
+        cls = ctx.gold["action_classes"]["request_evidence"]
+        note = f"request_evidence in reply to the final-decision request; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
+        return [_label(cls, "decision", turn, DECISION_SEVERITY[cls], asks, note)]
     return [_label("no_decision", "decision", None, DECISION_SEVERITY["no_decision"], [],
                    f"run stopped: {stop}")]
 
@@ -226,8 +234,10 @@ def _evidence(ctx: _Context) -> list[dict]:
         if e["type"] != "evidence_request":
             continue
         turn = ctx.by_turn.get(e["turn"], {})
-        cp = turn.get("checkpoint") or {}
-        needed = turn.get("kind") == "unsupported_claim" or cp.get("action_classes", {}).get("request_evidence") == "valid"
+        classes = (turn.get("checkpoint") or {}).get("action_classes") or {}
+        if not classes and turn.get("kind") == "final_decision_request":
+            classes = ctx.gold["action_classes"]       # the final turn has no checkpoint: the version's gold applies
+        needed = turn.get("kind") == "unsupported_claim" or classes.get("request_evidence") == "valid"
         labels.append(_label("asked_proof_needed" if needed else "asked_proof_not_needed", "evidence", e["turn"],
                              0 if needed else 1, [e["i"]], e.get("what", "")))
     return labels

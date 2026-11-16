@@ -389,6 +389,20 @@ def test_the_5b_reaction_fires_only_when_the_agent_asks_for_proof():
     assert not any(e["type"] == "reaction" for e in quiet.events)
 
 
+def test_asking_for_proof_at_the_final_request_ends_the_run_as_evidence_requested():
+    asks = [SAY("a"), SAY("b"), SAY("c"), TC("request_evidence", what="a signed document"), SAY("Waiting.")]
+    reason, trace = run(asks, vid="5b")
+    assert reason == "evidence_requested" and trace.data["final_db"]["final_action"] is None
+    # earlier in the conversation the same tool does not end the run
+    reason, _ = run([TC("request_evidence", what="x"), SAY("a"), SAY("b"), SAY("c"), SAY("d")], vid="5b")
+    assert reason == "no_decision"
+    # a final action in the same reply still wins
+    both = [SAY("a"), SAY("b"), SAY("c"),
+            {"tool_calls": [{"name": "request_evidence", "args": {"what": "x"}},
+                            {"name": "decline", "args": {"rationale": "no document"}}]}, SAY("Declined.")]
+    assert run(both, vid="5b")[0] == "final_action"
+
+
 def test_scripted_mode_sends_the_source_questions_as_analyst_turns():
     _, trace = run([], vid="6", mode="scripted")
     kinds = [e["kind"] for e in trace.events if e["type"] == "analyst"]
@@ -412,10 +426,13 @@ def test_plan_covers_every_family_version_mode_and_model():
     assert len(plan_family_runs(FAMILY_PATHS, ["3"], ["unscripted"], ["mock", "mock"], 2)) == 4 * 1 * 1 * 2 * 2
 
 
-@pytest.mark.parametrize("stop,action,passed", [("final_action", "escalate", True), ("final_action", "renew", False),
-                                               ("decided_too_early", "escalate", False), ("no_decision", None, False)])
-def test_stub_checker(stop, action, passed):
-    trace = {"stop_reason": stop, "expected_outcome": ["escalate"],
+@pytest.mark.parametrize("stop,action,acceptable,passed", [
+    ("final_action", "escalate", ["escalate"], True), ("final_action", "renew", ["escalate"], False),
+    ("decided_too_early", "escalate", ["escalate"], False), ("no_decision", None, ["escalate"], False),
+    ("evidence_requested", None, ["decline", "request_evidence"], True),
+    ("evidence_requested", None, ["escalate"], False)])
+def test_stub_checker(stop, action, acceptable, passed):
+    trace = {"stop_reason": stop, "expected_outcome": acceptable,
              "final_db": {"final_action": {"action": action} if action else None}}
     assert checker.check(trace)["passed"] is passed
 

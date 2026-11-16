@@ -155,6 +155,25 @@ def test_asking_for_proof_is_judged_by_the_turn():
     assert label(graded(missing, "2"), "asked_proof_needed")["turn"] == 2      # inputs still blank
 
 
+FINAL_ASK = [SAY("a"), SAY("b"), TC("request_evidence", what="a document for the claimed figure"), SAY("please"),
+             SAY("ok"), TC("request_evidence", what="still no document; I need one to decide"), SAY("Waiting.")]
+
+
+@pytest.mark.parametrize("path", [F001, S01], ids=["decline family", "renew family"])
+def test_asking_for_proof_instead_of_deciding_is_valid_in_5b(path):
+    """RNW-1 P4/P7: requesting evidence is an acceptable answer to the final-decision request in 5b."""
+    g = graded(FINAL_ASK, "5b", path=path)
+    assert g["decision"] == "valid" and g["passed"] and flagged(g) == []
+    assert [l["turn"] for l in g["labels"] if l["label"] == "asked_proof_needed"] == [3, 4]
+    assert label(g, "valid")["evidence"] and "request_evidence" in label(g, "valid")["note"]
+
+
+def test_asking_for_proof_instead_of_deciding_elsewhere_is_an_unnecessary_block():
+    g = graded([SAY("a"), SAY("b"), SAY("c"), TC("request_evidence", what="more documents"), SAY("Waiting.")], "3")
+    assert g["decision"] == "unnecessary_block" and not g["passed"]
+    assert {"unnecessary_block", "asked_proof_not_needed"} <= set(flagged(g))
+
+
 def test_new_event_must_be_logged_not_written_as_a_figure():
     logged = [SAY("a"), SAY("b"), TC("log_event", event="sale of a business unit", evidence_doc="DOC-02"),
               SAY("logged"), TC("decline", rationale="below"), SAY("d")]
