@@ -42,16 +42,25 @@ several agents with review.
 
 | PR | Branch | Status | What |
 |---|---|---|---|
-| 1 Harness core | `stage6/harness-core` | PR #5 open | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
-| 2 Credit environment + player | `stage6/credit-env` | PR #6 open (on top of #5) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
-| 3 Grader v0 | `stage6/grader` | built (on top of PR 2) | Labels from the whole trace; known-behaviour test agents |
-| 4 First real run | — | planned | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
+| 1 Harness core | `stage6/harness-core` | merged (#5, Nov 15) | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
+| 2 Credit environment + player | `stage6/credit-env` | merged (#6, Nov 15) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
+| 3 Grader v0 | `stage6/grader` | merged (#7, Nov 15) | Labels from the whole trace; known-behaviour test agents |
+| 4 First real run | `stage6/first-run` | built, not run yet (needs `ANTHROPIC_API_KEY`) | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
 | 5 Gates | — | later | Guarded mode; open vs guarded on the same families |
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
 | 7 Policy swap | — | when RNW-1-v2 is final | Specs point to RNW-1-v2; document dates; rule ids; record fields |
 
 PRs 1-4 are the proof of concept. After PR 3 a full run can be demonstrated with mock agents at no
 API cost.
+
+**Fix before PR 4** (from the PR 2/3 reviews, Nov 15; each would change real results):
+- 5b: gold accepts `request_evidence`, but a run cannot end on it, so asking again at the final turn is graded
+  `no_decision` (and `asked_proof_not_needed`).
+- The grader reloads `family.json` without checking the trace's `case_hash`; regrading after `make family`
+  (PR 7) would silently use the new gold.
+- `wrong_change_type` (a correction logged as `new_information`) still passes, with `recovered=True`.
+- `stale_calculation_cited` compares record versions, so it fires after an event log that changed no figure (v8).
+- A Python error inside a tool is returned as a rejected call and graded as the agent's `tool_misuse`.
 
 ## PR 2 design: credit environment and family player
 
@@ -139,8 +148,8 @@ gold rule tags move from P-ids to the new ids (E3, F1, O1-O5…); correction doc
 ## Resuming
 
 ```bash
-git fetch && git checkout stage6/credit-env     # or main once PRs 1-2 are merged
-cd capstone-env && make build && make test      # 442 tests at the end of PR 2
+git fetch && git checkout main && git pull      # PRs 1-3 are merged
+cd capstone-env && make build && make test      # 461 tests at the end of PR 3
 make demo                                        # 4 scripted mock agents through F001, no keys
 make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model
 ```

@@ -351,11 +351,15 @@ def test_stub_checker(stop, action, passed):
 
 def test_cli_runs_families_end_to_end_with_the_mock(tmp_path):
     out = tmp_path / "fam"
-    code = cli.main(["run-families", "--families", str(F001), "--versions", "3", "6", "--model", "mock",
+    code = cli.main(["run-families", "--families", str(F001), "--versions", "3", "6", "5b", "--model", "mock",
                      "--workers", "1", "--out", str(out)])
     assert code == 0
     rows = list(csv.DictReader((out / "runs.csv").open()))
-    assert len(rows) == 4 and {r["check_decision"] for r in rows} == {"no_decision"}
+    assert len(rows) == 6 and {r["check_decision"] for r in rows} == {"no_decision"}
+    # no final action is "none" (not the toy world's "ask"); acceptable actions are one plain cell
+    assert {r["final_action"] for r in rows} == {"none"}
+    assert {(r["version"], r["expected_outcome"]) for r in rows} == {
+        ("3", "escalate"), ("6", "decline"), ("5b", "decline;request_evidence")}
     assert {r["passed"] for r in rows} == {"False"} and {r["case_id"] for r in rows} == {"F001"}
     trace = json.loads(next((out / "traces").glob("F001__3__unscripted*.json")).read_text())
     assert trace["expected_outcome"] == ["escalate"] and trace["summary"]["n_turns"] == 4

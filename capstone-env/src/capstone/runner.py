@@ -146,6 +146,11 @@ def _mean(values: list) -> float | None:
     return round(sum(values) / len(values), 6) if values else None
 
 
+def _join(value: Any) -> Any:
+    """A list of acceptable outcomes (credit families) as one CSV cell, e.g. ``decline;request_evidence``."""
+    return ";".join(map(str, value)) if isinstance(value, (list, tuple)) else value
+
+
 def score_experiment(out_dir: str | Path, checker: str = DEFAULT_CHECKER,
                      group_by: tuple[str, ...] = DEFAULT_GROUP_BY, k: int | None = None) -> tuple[list[dict], list[dict]]:
     """Grade every saved trace and write runs.csv (one row per run) and summary.csv."""
@@ -158,7 +163,7 @@ def score_experiment(out_dir: str | Path, checker: str = DEFAULT_CHECKER,
         row: dict[str, Any] = {
             "run_id": t["run_id"], "case_id": t["case_id"], "version": t["case_version"],
             "case_type": t["case_type"], "mode": t["mode"], "model": t["model"]["name"], "repeat": t["repeat"],
-            "status": t["status"], "expected_outcome": t.get("expected_outcome"),
+            "status": t["status"], "expected_outcome": _join(t.get("expected_outcome")),
             "final_action": s.get("final_action"), "first_decision": s.get("first_decision"), "passed": None,
         }
         if t["status"] == "completed":

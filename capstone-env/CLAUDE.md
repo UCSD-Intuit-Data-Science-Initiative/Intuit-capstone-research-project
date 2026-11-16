@@ -63,17 +63,22 @@ agents), 4 first real run (S01 + F001, 36 runs, needs an API key). Later: 5 gate
 7 policy swap to RNW-1-v2. Rules: the harness never knows the policy (it reads family.json); the trace file is
 the official record and Langfuse only a copy; calculations and recommendations are versioned objects; every
 attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
-- [ ] PR 1 harness core — `stage6/harness-core`, PR #5 open (Nov 12): Ivan's `setup/script-player-agent-loop`
+- [x] PR 1 harness core — merged as #5 (Nov 15): Ivan's `setup/script-player-agent-loop`
   modules ported onto main (his 21 tests pass), `observe.py` + `--langfuse` + `cli langfuse` (langfuse 5.2.0,
   off by default, keys `LANGFUSE_*` in .env), 396 tests.
-- [ ] PR 2 credit environment + player — `stage6/credit-env`, stacked on PR 1 (Nov 12): `src/capstone/credit/`
+- [x] PR 2 credit environment + player — merged as #6 (Nov 15): `src/capstone/credit/`
   (agent view with a no-leak test over all 72 conversations, versioned record with calculations and
   recommendations, 10 tools with mechanics-only checks, family player with the 7 stop reasons and the 5b
   reaction, stub checker, 4 scripted demo agents), `make run-families`, `make demo`; 442 tests.
-- [ ] PR 3 grader v0 — `stage6/grader`, stacked on PR 2 (Nov 13): `credit/grader.py`, labels in 5 groups with
+- [x] PR 3 grader v0 — merged as #7 (Nov 15): `credit/grader.py`, labels in 5 groups with
   the codebook fields, attempted / accepted / final invalid changes counted apart, stale-reasoning labels from
   the versioned record; default checker of run-families; `cli grade`; 461 tests.
-- [ ] PR 4 first real run
+- [ ] PR 4 first real run — branch `stage6/first-run` (Ishaan, Nov 13): built, not run yet (needs
+  `ANTHROPIC_API_KEY`), no PR opened. Open from the PR 2/3 reviews (Nov 15), to fix first since they change real results:
+  5b can't end on `request_evidence` (graded `no_decision` though gold accepts it); grader ignores the trace's
+  `case_hash` (regrading after `make family` silently uses new gold); `wrong_change_type` still passes
+  (`recovered=True`); `stale_calculation_cited` fires after an event log that changed no figure; Python errors
+  in a tool are reported as rejected calls and graded `tool_misuse`.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -131,14 +136,15 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate),
   `family.py` (Stage 4 draw or hand-pick, family rules, template fill, both modes, gold, grading, JSON + review
   + index output).
-- `src/capstone/credit/` (Stage 6 PR 2): `view.py` agent view + rendering, `record.py` versioned record,
+- `src/capstone/credit/` (Stage 6 PRs 2-3): `view.py` agent view + rendering, `record.py` versioned record,
   `env.py` credit tools (mechanics only), `player.py` family player + stop rules + run specs, `checker.py` stub,
   `grader.py` grader v0 (labels, `check`, `grade_experiment`),
   `demo.py` scripted mock agents (`make demo`).
 - `src/capstone/` harness (Stage 6, from Ivan's branch): `models.py` (mock/Anthropic/OpenAI/OpenRouter adapters),
   `agent.py` (tool-call loop), `player.py` (case files, modes), `env.py` (environment interface + toy_invoice),
-  `trace.py` (trace format), `runner.py` (repeats, pass^k, tables), `cli.py` (run/score/show/chat/langfuse),
-  `checker.py` (placeholder until PR 3), `observe.py` (optional Langfuse copy). `configs/models.yaml` (model
+  `trace.py` (trace format), `runner.py` (repeats, pass^k, tables), `cli.py`
+  (run/run-families/score/grade/show/chat/langfuse), `checker.py` (stub for the toy_invoice case only; credit
+  runs are graded by `credit/grader.py`), `observe.py` (optional Langfuse copy). `configs/models.yaml` (model
   names → provider/id/params/price; ids blank until chosen). `cases/` holds the harness's example case only.
   `results/` run outputs (git-ignored). Plan: `docs/architecture_plan.md`.
 - Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`
@@ -151,7 +157,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - `notebooks/` (02_profile.ipynb), `docs/` (profile_report.md, selection_report.md, architecture_plan.md,
   reference/; later dataset card, review log).
 - Run everything in Docker: `make build`, `make test`, `make smoke`, `make shell`, `make data`,
-  `make data-verify`, `make profile`, `make select`, `make family`, `make family-check`, `make run ARGS="..."`.
+  `make data-verify`, `make profile`, `make select`, `make family`, `make family-check`, `make run ARGS="..."`,
+  `make run-families ARGS="..."`, `make demo`.
 
 ## Working rules
 - ONE stage per session (stages in the data plan). Propose a short plan and wait for approval before writing code.
@@ -164,8 +171,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 
 ## Status
 - [x] Docker env
-- [~] Harness: Ivan's `setup/script-player-agent-loop` (Oct 29) is being ported in Stage 6 PR 1 (see the Stage 6
-  section). The older "Harness v0.1 zip with a FinVault adapter" is not in the repo and is not needed.
+- [x] Harness: Ivan's `setup/script-player-agent-loop` (Oct 29) ported onto main in Stage 6 PR 1 (#5, Nov 15; see
+  the Stage 6 section). The older "Harness v0.1 zip with a FinVault adapter" is not in the repo and is not needed.
 - [x] Data profiling + data plan (Nov 1)
 - [x] Stage 1 data layout + pinned fetch + checksums (Nov 1; tests/test_fetch.py)
 - [x] Stage 2 profile: 54/54 Nov 1 fields reproduced (Nov 1; tests/test_program.py, tests/test_profile.py)
@@ -173,8 +180,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [ ] 4 build families: 4 of 12 built (Nov 3, `data/stage-4-format`): pilot F001 (drawn) and F002 (Ivan's,
   hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
   352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
-- [ ] 5 review + scale  · [ ] 6 connect to harness: in progress, see the Stage 6 section and
-  docs/architecture_plan.md
+- [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-3 of 7 merged; next PR 4 first real
+  run), see the Stage 6 section and docs/architecture_plan.md
 
 ## Stage 4 notes (from Stage 3)
 - Pilot mix target: growth_rate 5, ratio 5 (10 families; several may share a company, never a table, since
