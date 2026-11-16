@@ -60,6 +60,11 @@ def load_family(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def family_hash(raw: bytes) -> str:
+    """The family file's fingerprint, saved in each trace as ``case_hash`` and checked by the grader."""
+    return hashlib.sha256(raw).hexdigest()[:12]
+
+
 def find_families(paths: Sequence[str | Path] = (DEFAULT_FAMILIES,)) -> list[Path]:
     """family.json files from files or folders (searched recursively), sorted and de-duplicated."""
     found: set[Path] = set()
@@ -182,7 +187,7 @@ def run_family_one(spec: FamilyRunSpec, model_configs: dict[str, dict], settings
     limits = Limits(tool_calls_per_turn=settings.max_tool_calls)
     trace = Trace(
         run_id=spec.run_id, case_id=spec.family_id, case_version=spec.version_id, case_type=spec.version_type,
-        case_file=str(spec.family_path), case_hash=hashlib.sha256(raw).hexdigest()[:12], env="credit_renewal",
+        case_file=str(spec.family_path), case_hash=family_hash(raw), env="credit_renewal",
         family_set=fam["set"], policy_id=fam["policy"]["id"], expected_outcome=gold["acceptable_actions"],
         mode=spec.mode, model={"name": spec.model, **model_configs[spec.model]},
         settings={"limits": vars(limits)}, repeat=spec.repeat,

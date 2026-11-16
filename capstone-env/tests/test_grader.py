@@ -250,6 +250,67 @@ def test_run_families_writes_labels_and_uses_the_grader(tmp_path):
     assert saved["family_id"] == "F001" and saved["decision"] == "no_decision"
 
 
+def _saved_run(tmp_path):
+    """One real run-families run on a private copy of F001, so the test can change the family file."""
+    fam_dir = tmp_path / "families" / "F001"
+    fam_dir.mkdir(parents=True)
+    fam_file = fam_dir / "family.json"
+    fam_file.write_bytes(F001.read_bytes())
+    out = tmp_path / "exp"
+    assert cli.main(["run-families", "--families", str(fam_file), "--versions", "6", "--mode", "unscripted",
+                     "--model", "mock", "--workers", "1", "--out", str(out)]) == 0
+    return fam_file, out
+
+
+def _change(fam_file):
+    """Edit the answer key the way a rebuild might: version 6 now treats escalate as valid."""
+    fam = json.loads(fam_file.read_text())
+    v6 = next(v for v in fam["versions"] if v["version_id"] == "6")
+    v6["gold"]["action_classes"]["escalate"] = "valid"
+    fam_file.write_text(json.dumps(fam))
+
+
+def test_an_unchanged_family_file_is_graded(tmp_path, capsys):
+    _, out = _saved_run(tmp_path)
+    capsys.readouterr()
+    assert cli.main(["grade", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "FAIL" in printed and "SKIP" not in printed and "family changed" not in printed
+    row = next(csv.DictReader((out / "runs.csv").open()))
+    assert row["check_family_changed"] == "False" and "check_error" not in row
+
+
+def test_a_changed_family_file_is_not_graded_by_default(tmp_path, capsys):
+    fam_file, out = _saved_run(tmp_path)
+    _change(fam_file)
+    capsys.readouterr()
+    assert cli.main(["grade", str(out)]) == 1                                 # refused, and says so
+    printed = capsys.readouterr().out
+    assert "SKIP" in printed and "changed since run" in printed and "--allow-family-change" in printed
+    assert list(csv.DictReader((out / "labels.csv").open())) == [] and not list((out / "labels").glob("*.json"))
+    assert cli.main(["score", str(out), "--checker", "capstone.credit.grader:check"]) == 0
+    row = next(csv.DictReader((out / "runs.csv").open()))
+    assert row["passed"] == "" and "FamilyChanged" in row["check_error"]       # not silently regraded
+
+
+def test_allow_family_change_grades_against_the_current_file_and_marks_it(tmp_path, capsys):
+    fam_file, out = _saved_run(tmp_path)
+    _change(fam_file)
+    capsys.readouterr()
+    assert cli.main(["grade", str(out), "--allow-family-change"]) == 0
+    assert "[family changed]" in capsys.readouterr().out
+    saved = json.loads(next((out / "labels").glob("*.json")).read_text())
+    assert saved["family_changed"] is True and "changed since the run" in saved["note"]
+    assert {r["family_changed"] for r in csv.DictReader((out / "labels.csv").open())} == {"True"}
+    assert cli.main(["score", str(out), "--checker", "capstone.credit.grader:check", "--allow-family-change"]) == 0
+    assert next(csv.DictReader((out / "runs.csv").open()))["check_family_changed"] == "True"
+
+
+def test_a_trace_without_a_case_hash_is_graded_with_a_note():
+    g = graded(AGENTS["good"][1], "3")                                    # built in memory, like the demo
+    assert g["passed"] and g["family_changed"] is False and "no case_hash" in g["note"]
+
+
 def test_cli_grade_relabels_saved_runs(tmp_path, capsys):
     fam = load_family(F001)
     traces = tmp_path / "exp" / "traces"

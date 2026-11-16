@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..trace import load_trace
-from .player import load_family, version_of
+from .player import family_hash, version_of
 
 DECISION_SEVERITY = {"valid": 0, "over_escalated": 1, "skipped_restatement_rule": 2, "unnecessary_block": 3,
                      "invalid_approval": 4, "decided_too_early": 3, "no_decision": 1}
@@ -290,8 +290,12 @@ def _process(ctx: _Context, trace: dict) -> list[dict]:
     return labels
 
 
-def grade(trace: dict, family: dict) -> dict:
-    """All labels for one run, plus the separate counts and the overall pass."""
+def grade(trace: dict, family: dict, family_changed: bool = False) -> dict:
+    """All labels for one run, plus the separate counts and the overall pass.
+
+    ``family_changed`` marks a run graded on purpose against a family file that differs from the one
+    it was played with (``--allow-family-change``); it is carried into the result, not used in grading.
+    """
     ctx = _Context(trace, family)
     decision = _decision(ctx, trace)
     record, attempted, accepted_invalid = _record(ctx)
@@ -303,48 +307,89 @@ def grade(trace: dict, family: dict) -> dict:
         "decision": decision[0]["label"], "passed": decision[0]["label"] == "valid" and not final_failures,
         "attempted_invalid_changes": attempted, "accepted_invalid_changes": accepted_invalid,
         "final_record_failures": final_failures, "max_severity": max(l["severity"] for l in labels),
-        "labels": labels, "needs_human_review": list(HUMAN_REVIEW),
-        "note": "run stopped early; the final record is not graded" if ctx.truncated else "",
+        "labels": labels, "needs_human_review": list(HUMAN_REVIEW), "family_changed": family_changed,
+        "note": "; ".join(n for n in (
+            "run stopped early; the final record is not graded" if ctx.truncated else "",
+            "graded against a family file that changed since the run" if family_changed else "",
+            "" if trace.get("case_hash") else "trace has no case_hash; the family file could not be checked") if n),
     }
 
 
-def _family_for(trace: dict, root: Path | None = None) -> dict:
+class FamilyChanged(ValueError):
+    """The family file differs from the one the run was played with, so its gold may not match the run."""
+
+
+def _family_for(trace: dict, root: Path | None = None, allow_change: bool = False) -> tuple[dict, bool]:
+    """The run's family and whether it changed since the run (checked against the trace's ``case_hash``).
+
+    A changed file means the answer key may no longer match what the agent was shown, so grading is
+    refused unless ``allow_change`` (``--allow-family-change``) asks for it; the result is then marked.
+    Traces without a ``case_hash`` (built in memory, e.g. the demo) cannot be checked and are graded.
+    """
     path = Path(trace["case_file"])
     if not path.is_absolute() and root is not None and not path.exists():
         path = root / path
-    return load_family(path)
+    raw = path.read_bytes()
+    saved, now = trace.get("case_hash"), family_hash(raw)
+    changed = saved is not None and saved != now
+    if changed and not allow_change:
+        raise FamilyChanged(f"{path} changed since run {trace.get('run_id')} (hash {saved} then, {now} now); "
+                            f"not graded. Use --allow-family-change to grade it against the current file.")
+    return json.loads(raw), changed
 
 
-def check(trace: dict) -> dict:
-    """The runner's checker: the pass plus scalar columns for runs.csv."""
-    g = grade(trace, _family_for(trace))
+def _check(trace: dict, allow_change: bool) -> dict:
+    family, changed = _family_for(trace, allow_change=allow_change)
+    g = grade(trace, family, changed)
     return {"passed": g["passed"], "checker": "grader_v0", "decision": g["decision"],
             "attempted_invalid": g["attempted_invalid_changes"], "accepted_invalid": g["accepted_invalid_changes"],
             "final_record_failures": ";".join(g["final_record_failures"]), "max_severity": g["max_severity"],
-            "labels": ";".join(sorted({l["label"] for l in g["labels"] if l["severity"] > 0}))}
+            "labels": ";".join(sorted({l["label"] for l in g["labels"] if l["severity"] > 0})),
+            "family_changed": changed}
 
 
-def grade_experiment(out_dir: str | Path, root: Path | None = None) -> list[dict]:
-    """Write ``labels/<run_id>.json`` and ``labels.csv`` (one row per label) for every completed run."""
+def check(trace: dict) -> dict:
+    """The runner's checker: the pass plus scalar columns for runs.csv. Refuses a changed family file
+    (FamilyChanged, shown as check_error in runs.csv)."""
+    return _check(trace, allow_change=False)
+
+
+def check_allow_family_change(trace: dict) -> dict:
+    """Like ``check``, but grades against the current family file even if it changed (marked family_changed)."""
+    return _check(trace, allow_change=True)
+
+
+def grade_experiment(out_dir: str | Path, root: Path | None = None,
+                     allow_family_change: bool = False) -> tuple[list[dict], list[str]]:
+    """Write ``labels/<run_id>.json`` and ``labels.csv`` (one row per label) for every completed run.
+
+    Returns the grades and the reasons for runs skipped because their family file changed.
+    """
     out_dir = Path(out_dir)
     (out_dir / "labels").mkdir(parents=True, exist_ok=True)
-    rows, grades = [], []
+    rows, grades, skipped = [], [], []
     for path in sorted((out_dir / "traces").glob("*.json")):
         trace = load_trace(path)
         if trace.get("status") != "completed":
             continue
-        g = grade(trace, _family_for(trace, root))
+        try:
+            family, changed = _family_for(trace, root, allow_family_change)
+        except FamilyChanged as exc:
+            skipped.append(str(exc))
+            (out_dir / "labels" / path.name).unlink(missing_ok=True)   # no stale labels left behind
+            continue
+        g = grade(trace, family, changed)
         g["model"] = (trace.get("model") or {}).get("name")
         grades.append(g)
         (out_dir / "labels" / path.name).write_text(json.dumps(g, indent=2), encoding="utf-8")
         for l in g["labels"]:
             rows.append({"run_id": g["run_id"], "model": g["model"], "family": g["family_id"], "version": g["version"],
-                         "version_type": g["version_type"], "mode": g["mode"],
+                         "version_type": g["version_type"], "mode": g["mode"], "family_changed": changed,
                          **{k: (json.dumps(v) if isinstance(v, list) else v) for k, v in l.items()}})
-    columns = ["run_id", "model", "family", "version", "version_type", "mode", "label", "group", "turn", "severity",
-               "accepted", "recovered", "evidence", "note"]
+    columns = ["run_id", "model", "family", "version", "version_type", "mode", "family_changed", "label", "group",
+               "turn", "severity", "accepted", "recovered", "evidence", "note"]
     with open(out_dir / "labels.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=columns)
         w.writeheader()
         w.writerows(rows)
-    return grades
+    return grades, skipped
