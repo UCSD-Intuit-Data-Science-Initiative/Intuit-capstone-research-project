@@ -70,7 +70,10 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
   (agent view with a no-leak test over all 72 conversations, versioned record with calculations and
   recommendations, 10 tools with mechanics-only checks, family player with the 7 stop reasons and the 5b
   reaction, stub checker, 4 scripted demo agents), `make run-families`, `make demo`; 442 tests.
-- [ ] PR 3 grader v0 (next; reuse `credit/demo.py` agents as the known-behaviour checks) · [ ] PR 4 first real run
+- [ ] PR 3 grader v0 — `stage6/grader`, stacked on PR 2 (Nov 13): `credit/grader.py`, labels in 5 groups with
+  the codebook fields, attempted / accepted / final invalid changes counted apart, stale-reasoning labels from
+  the versioned record; default checker of run-families; `cli grade`; 461 tests.
+- [ ] PR 4 first real run
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -130,6 +133,7 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   + index output).
 - `src/capstone/credit/` (Stage 6 PR 2): `view.py` agent view + rendering, `record.py` versioned record,
   `env.py` credit tools (mechanics only), `player.py` family player + stop rules + run specs, `checker.py` stub,
+  `grader.py` grader v0 (labels, `check`, `grade_experiment`),
   `demo.py` scripted mock agents (`make demo`).
 - `src/capstone/` harness (Stage 6, from Ivan's branch): `models.py` (mock/Anthropic/OpenAI/OpenRouter adapters),
   `agent.py` (tool-call loop), `player.py` (case files, modes), `env.py` (environment interface + toy_invoice),

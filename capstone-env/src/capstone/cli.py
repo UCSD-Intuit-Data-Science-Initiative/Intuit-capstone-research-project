@@ -181,14 +181,29 @@ def cmd_run_families(args: argparse.Namespace) -> int:
     }, indent=2), encoding="utf-8")
     counts = run_experiment(specs, configs, out, settings, run_fn=run_family_one)
     _, summary = score_experiment(out, args.checker, k=args.k)
+    from .credit.grader import grade_experiment
+    grades = grade_experiment(out)
     print()
     print_summary(summary, args.k, DEFAULT_GROUP_BY)
     print(f"\nruns: {out / 'runs.csv'}\nsummary: {out / 'summary.csv'}\ntraces: {out / 'traces'}")
+    print(f"labels: {out / 'labels.csv'} ({sum(len(g['labels']) for g in grades)} labels, {len(grades)} runs)")
     if args.langfuse:
         _send_to_langfuse([trace_path(out, s) for s in specs if trace_path(out, s).exists()])
     if counts["error"]:
         print(f"{counts['error']} runs errored; rerun the same command to retry them")
     return 1 if counts["error"] else 0
+
+
+def cmd_grade(args: argparse.Namespace) -> int:
+    from .credit.grader import grade_experiment
+    grades = grade_experiment(args.out)
+    for g in grades:
+        bad = sorted({l["label"] for l in g["labels"] if l["severity"] > 0})
+        print(f"{'PASS' if g['passed'] else 'FAIL'}  {g['run_id']}  decision={g['decision']}  "
+              f"invalid attempted/accepted={g['attempted_invalid_changes']}/{g['accepted_invalid_changes']}  "
+              f"{', '.join(bad) or '-'}")
+    print(f"labels: {Path(args.out) / 'labels.csv'}")
+    return 0
 
 
 def cmd_score(args: argparse.Namespace) -> int:
@@ -291,10 +306,14 @@ def main(argv: list[str] | None = None) -> int:
     rf.add_argument("--retries", type=int, default=2)
     rf.add_argument("--max-tool-calls", type=int, default=DEFAULT_MAX_TOOL_CALLS, help="per agent turn")
     rf.add_argument("--models-config", default=DEFAULT_MODELS_CONFIG)
-    rf.add_argument("--checker", default="capstone.credit.checker:check")
+    rf.add_argument("--checker", default="capstone.credit.grader:check")
     rf.add_argument("--dry-run", action="store_true")
     rf.add_argument("--langfuse", action="store_true", help="also copy the finished traces to Langfuse")
     rf.set_defaults(func=cmd_run_families)
+
+    g = sub.add_parser("grade", help="label saved credit runs (labels/<run>.json and labels.csv)")
+    g.add_argument("out")
+    g.set_defaults(func=cmd_grade)
 
     lf = sub.add_parser("langfuse", help="copy saved traces to Langfuse for browsing")
     lf.add_argument("paths", nargs="+", help="experiment folders, trace folders or trace files")

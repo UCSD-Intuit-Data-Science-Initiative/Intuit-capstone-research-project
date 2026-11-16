@@ -355,7 +355,7 @@ def test_cli_runs_families_end_to_end_with_the_mock(tmp_path):
                      "--workers", "1", "--out", str(out)])
     assert code == 0
     rows = list(csv.DictReader((out / "runs.csv").open()))
-    assert len(rows) == 4 and {r["check_stop_reason"] for r in rows} == {"no_decision"}
+    assert len(rows) == 4 and {r["check_decision"] for r in rows} == {"no_decision"}
     assert {r["passed"] for r in rows} == {"False"} and {r["case_id"] for r in rows} == {"F001"}
     trace = json.loads(next((out / "traces").glob("F001__3__unscripted*.json")).read_text())
     assert trace["expected_outcome"] == ["escalate"] and trace["summary"]["n_turns"] == 4

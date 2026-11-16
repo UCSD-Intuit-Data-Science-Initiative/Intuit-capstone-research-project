@@ -113,8 +113,13 @@ mechanics (the fact exists, the document was given, the decision is pending); po
 afterwards. The player (`player.py`) stops on a final action, a final action before it was asked
 for, tool or time limits, three rejected calls in a row, or the end of the script.
 
+The grader (`grader.py`, PR 3) labels each run from its whole trace, in five groups (decision,
+record, math, evidence, process), with a turn, a severity 0-4, whether a change went through and
+whether it was fixed later. It writes `labels/<run>.json` and `labels.csv` next to the traces.
+
 ```bash
 make demo                                                     # 4 scripted mock agents, table + traces
+python -m capstone.cli grade results/fam1                     # relabel saved runs
 make run-families ARGS="--model mock --versions 3 --out results/fam1"
 python -m capstone.cli run-families --model claude --families data/families/smoke/S01 --mode unscripted
 python -m capstone.cli show results/demo/traces/demo__good__F001__3.json

@@ -43,8 +43,8 @@ several agents with review.
 | PR | Branch | Status | What |
 |---|---|---|---|
 | 1 Harness core | `stage6/harness-core` | PR #5 open | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
-| 2 Credit environment + player | `stage6/credit-env` | built (on top of PR 1) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
-| 3 Grader v0 | — | next | Labels from the whole trace; known-behaviour test agents |
+| 2 Credit environment + player | `stage6/credit-env` | PR #6 open (on top of #5) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
+| 3 Grader v0 | `stage6/grader` | built (on top of PR 2) | Labels from the whole trace; known-behaviour test agents |
 | 4 First real run | — | planned | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
 | 5 Gates | — | later | Guarded mode; open vs guarded on the same families |
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
@@ -100,6 +100,10 @@ Replaces the harness's own case format and its `scripted` / `baseline` modes for
 toy invoice case stays for the harness tests).
 
 ## PR 3 design: grader v0
+
+Built in `src/capstone/credit/grader.py` (default checker of `run-families`; `cli grade <exp>` relabels saved
+runs; `labels/<run>.json` + `labels.csv` per experiment); 19 tests in `tests/test_grader.py` with scripted
+agents of known behaviour. Runs cut short (too early, limits, errors) are not graded on the final record.
 
 Reads the trace and `family.json` gold. Reuses `family.py` (`grade`, `record_failures`,
 `classes_final`). Labels per run (codebook fields: label, turn, severity 0-4, recovered, evidence
