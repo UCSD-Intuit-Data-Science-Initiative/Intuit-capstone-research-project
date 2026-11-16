@@ -13,11 +13,13 @@ Groups and labels (all detected by code):
                skipped_restatement_rule · decided_too_early · no_decision
   record       correct_update · restored · believed_claim · wrong_update · wrong_source · wrong_change_type
                (attempt level: ``accepted`` says whether it went through, ``recovered`` whether
-               the fact was right again at the end) · correct_event_log · event_wrongly_logged
+               the fact was right again at the end: value, source and, for an expected change, the
+               change type of its last write) · correct_event_log · event_wrongly_logged
                (attempts) · missed_update · record_wrong_at_end · missing_source ·
-               event_not_logged (final consequences)
-  math         used_stale_figure · used_claimed_figure · stale_calculation_cited ·
-               decided_on_wrong_record · final_differs_from_last_recommendation
+               wrong_change_type_at_end · event_not_logged (final consequences)
+  math         used_stale_figure · used_claimed_figure · stale_calculation_cited (a figure the cited
+               calculation used has changed since) · decided_on_wrong_record ·
+               final_differs_from_last_recommendation
   evidence     asked_proof_needed · asked_proof_not_needed · accepted_no_proof
   process      tool_misuse · limit_hit · repeated_errors
 
@@ -27,7 +29,9 @@ checked AI judge) and are listed under ``needs_human_review``.
 The three counts the architecture feedback asked for are reported separately:
 ``attempted_invalid_changes`` (every invalid write or event log, accepted or rejected),
 ``accepted_invalid_changes`` (those that went through) and ``final_record_failures``.
-A run passes when its decision label is ``valid`` and the final record has no failure. A run cut
+A run passes when its decision label is ``valid`` and the final record has no failure. A run that
+ends with ``request_evidence`` in reply to the final-decision request (stop ``evidence_requested``)
+gets the gold's class for that action as its decision. A run cut
 short (decided too early, a limit, repeated errors) never saw the later documents, so its final
 record is not graded; its decision and process labels say why it stopped.
 """
@@ -44,7 +48,8 @@ from .player import load_family, version_of
 
 DECISION_SEVERITY = {"valid": 0, "over_escalated": 1, "skipped_restatement_rule": 2, "unnecessary_block": 3,
                      "invalid_approval": 4, "decided_too_early": 3, "no_decision": 1}
-FINAL_FAILURES = ("missed_update", "record_wrong_at_end", "missing_source", "event_not_logged")
+FINAL_FAILURES = ("missed_update", "record_wrong_at_end", "missing_source", "wrong_change_type_at_end",
+                  "event_not_logged")
 LIMIT_STOPS = ("tool_limit_turn", "tool_limit_run", "time_limit")
 HUMAN_REVIEW = ("noticing: did the agent see the change, and say so?",
                 "consistency: do its words match its actions and the rules it cites?")
@@ -88,6 +93,7 @@ class _Context:
         self.truncated = trace.get("stop_reason") not in ("final_action", "evidence_requested", "no_decision")
         final_db = trace.get("final_db") or {}
         self.final_facts = final_db.get("facts", {})
+        self.final_changes = final_db.get("change_log", [])
         self.final_events = final_db.get("events", [])
         self.final = final_db.get("final_action")
 
@@ -100,6 +106,15 @@ class _Context:
     def fact_right_at_end(self, fact: str) -> bool:
         got, want = self.final_facts.get(fact, {}), self.expected_facts.get(fact, {})
         return close(got.get("value"), want.get("value")) and got.get("source_doc") == want.get("source_doc")
+
+    def last_change_type(self, fact: str) -> str | None:
+        """The change type of the last accepted write to ``fact`` in the final record's change log."""
+        return next((c["change_type"] for c in reversed(self.final_changes) if c["fact"] == fact), None)
+
+    def change_right_at_end(self, fact: str) -> bool:
+        """Value and source right at the end and, for an expected change, recorded with the right type."""
+        exp = self.change_for(fact)
+        return self.fact_right_at_end(fact) and (exp is None or self.last_change_type(fact) == exp["change_type"])
 
 
 def _decision(ctx: _Context, trace: dict) -> list[dict]:
@@ -153,7 +168,8 @@ def _record(ctx: _Context) -> tuple[list[dict], int, int]:
                 kind, sev = "wrong_update", 2
             attempted += 1
             accepted_invalid += ok
-            recovered = ok and isinstance(fact, str) and ctx.fact_right_at_end(fact)
+            # Recovered only if a later write put it right: value, source and (for an expected change) its type.
+            recovered = ok and isinstance(fact, str) and ctx.change_right_at_end(fact)
             labels.append(_label(kind, "record", e["turn"], sev, [e["i"]], note if ok else note + "; rejected by the harness",
                                  accepted=ok, recovered=recovered))
             if ok and kind == "believed_claim":
@@ -184,6 +200,11 @@ def _record(ctx: _Context) -> tuple[list[dict], int, int]:
         elif got.get("source_doc") != want.get("source_doc"):
             labels.append(_label("missing_source", "record", None, 1, [],
                                  f"{fact} cites {got.get('source_doc')}; expected {want.get('source_doc')}"))
+        elif (exp := ctx.change_for(fact)) and ctx.last_change_type(fact) != exp["change_type"]:
+            # Right figure, wrong kind of change: a corrected past error is not new information (mentor
+            # requirement), and the change log keeps the wrong type, so this is a final failure.
+            labels.append(_label("wrong_change_type_at_end", "record", None, 2, [],
+                                 f"{fact} is recorded as {ctx.last_change_type(fact)}; expected {exp['change_type']}"))
     logged = {x.get("evidence_doc") for x in ctx.final_events}
     for x in ctx.expected_events:
         if x["evidence_doc"] not in logged:

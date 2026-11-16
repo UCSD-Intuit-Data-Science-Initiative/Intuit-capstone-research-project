@@ -105,7 +105,17 @@ def test_wrong_change_type_and_wrong_source_are_told_apart():
                   TC("update_record", fact="net_sales_2015", value=45366, change_type="new_information",
                      evidence_doc="DOC-02"), SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
     g = graded(wrong_type, "3")
-    assert flagged(g) == ["wrong_change_type"] and g["passed"]           # right value and source at the end
+    # right value and source, but the change log still calls the correction new information: a final failure
+    assert flagged(g) == ["wrong_change_type", "wrong_change_type_at_end"] and not g["passed"]
+    assert label(g, "wrong_change_type")["recovered"] is False
+    assert g["final_record_failures"] == ["wrong_change_type_at_end"]
+    fixed = [SAY("a"), SAY("b"),
+             TC("update_record", fact="net_sales_2015", value=45366, change_type="new_information", evidence_doc="DOC-02"),
+             TC("update_record", fact="net_sales_2015", value=45366, change_type="restatement", evidence_doc="DOC-02"),
+             SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
+    g = graded(fixed, "3")
+    assert g["passed"] and flagged(g) == ["wrong_change_type"] and label(g, "wrong_change_type")["recovered"] is True
+    assert (g["attempted_invalid_changes"], g["accepted_invalid_changes"], g["final_record_failures"]) == (1, 1, [])
     wrong_src = [SAY("a"), SAY("b"),
                  TC("update_record", fact="net_sales_2015", value=45366, change_type="restatement",
                     evidence_doc="DOC-01"), SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
