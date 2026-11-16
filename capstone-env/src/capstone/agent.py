@@ -88,4 +88,8 @@ def _execute(env: Environment, trace: Trace, turn: int, call: ToolCall) -> tuple
     trace.add("tool", turn=turn, id=call.id, name=call.name, args=call.args, executed=True, result=obs,
               reward=reward, terminated=terminated, truncated=truncated, decision=decision, info=info,
               db_before=before, db_after=after)
+    # Environments may report what a call did (accepted or rejected writes, stored calculations, ...).
+    for extra in (env.drain_events() if hasattr(env, "drain_events") else []):
+        extra = dict(extra)
+        trace.add(extra.pop("type"), turn=turn, tool_call_id=call.id, **extra)
     return obs, False

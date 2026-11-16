@@ -42,9 +42,9 @@ several agents with review.
 
 | PR | Branch | Status | What |
 |---|---|---|---|
-| 1 Harness core | `stage6/harness-core` | in progress | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
-| 2 Credit environment + player | — | next | Agent view, versioned record, credit tools, family player, stop rules (details below) |
-| 3 Grader v0 | — | planned | Labels from the whole trace; known-behaviour test agents |
+| 1 Harness core | `stage6/harness-core` | PR #5 open | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
+| 2 Credit environment + player | `stage6/credit-env` | built (on top of PR 1) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
+| 3 Grader v0 | — | next | Labels from the whole trace; known-behaviour test agents |
 | 4 First real run | — | planned | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
 | 5 Gates | — | later | Guarded mode; open vs guarded on the same families |
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
@@ -54,6 +54,9 @@ PRs 1-4 are the proof of concept. After PR 3 a full run can be demonstrated with
 API cost.
 
 ## PR 2 design: credit environment and family player
+
+Built in `src/capstone/credit/` (view, record, env, player, checker stub, demo); `make run-families`,
+`make demo`; tests in `tests/test_credit.py`. Limits as proposed below (configurable in `Limits`).
 
 **Agent view.** One function turns a family turn into exactly what the agent may see: speaker,
 text, documents (id, type, title, issuer, supersedes, signed_by, dated, table, body). Never:
@@ -132,8 +135,9 @@ gold rule tags move from P-ids to the new ids (E3, F1, O1-O5…); correction doc
 ## Resuming
 
 ```bash
-git fetch && git checkout stage6/harness-core   # or main once PR 1 is merged
-cd capstone-env && make build && make test      # 396 tests at the end of PR 1
-make run ARGS="--model mock --k 1 --out results/smoke"   # harness smoke run, no keys
+git fetch && git checkout stage6/credit-env     # or main once PRs 1-2 are merged
+cd capstone-env && make build && make test      # 442 tests at the end of PR 2
+make demo                                        # 4 scripted mock agents through F001, no keys
+make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model
 ```
 Then read CLAUDE.md (Stage 6 section) and start the next PR in the table above.

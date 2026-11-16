@@ -63,10 +63,14 @@ agents), 4 first real run (S01 + F001, 36 runs, needs an API key). Later: 5 gate
 7 policy swap to RNW-1-v2. Rules: the harness never knows the policy (it reads family.json); the trace file is
 the official record and Langfuse only a copy; calculations and recommendations are versioned objects; every
 attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
-- [ ] PR 1 harness core — branch `stage6/harness-core` (Nov 12): Ivan's `setup/script-player-agent-loop`
+- [ ] PR 1 harness core — `stage6/harness-core`, PR #5 open (Nov 12): Ivan's `setup/script-player-agent-loop`
   modules ported onto main (his 21 tests pass), `observe.py` + `--langfuse` + `cli langfuse` (langfuse 5.2.0,
-  off by default, keys `LANGFUSE_*` in .env), 396 tests pass. Not pushed yet.
-- [ ] PR 2 credit environment + player · [ ] PR 3 grader v0 · [ ] PR 4 first real run
+  off by default, keys `LANGFUSE_*` in .env), 396 tests.
+- [ ] PR 2 credit environment + player — `stage6/credit-env`, stacked on PR 1 (Nov 12): `src/capstone/credit/`
+  (agent view with a no-leak test over all 72 conversations, versioned record with calculations and
+  recommendations, 10 tools with mechanics-only checks, family player with the 7 stop reasons and the 5b
+  reaction, stub checker, 4 scripted demo agents), `make run-families`, `make demo`; 442 tests.
+- [ ] PR 3 grader v0 (next; reuse `credit/demo.py` agents as the known-behaviour checks) · [ ] PR 4 first real run
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -124,6 +128,9 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   `answers.py` (written answer vs exe_ans), `select.py` (Stage 3 filters, metric classes, cut versions, split, gate),
   `family.py` (Stage 4 draw or hand-pick, family rules, template fill, both modes, gold, grading, JSON + review
   + index output).
+- `src/capstone/credit/` (Stage 6 PR 2): `view.py` agent view + rendering, `record.py` versioned record,
+  `env.py` credit tools (mechanics only), `player.py` family player + stop rules + run specs, `checker.py` stub,
+  `demo.py` scripted mock agents (`make demo`).
 - `src/capstone/` harness (Stage 6, from Ivan's branch): `models.py` (mock/Anthropic/OpenAI/OpenRouter adapters),
   `agent.py` (tool-call loop), `player.py` (case files, modes), `env.py` (environment interface + toy_invoice),
   `trace.py` (trace format), `runner.py` (repeats, pass^k, tables), `cli.py` (run/score/show/chat/langfuse),
