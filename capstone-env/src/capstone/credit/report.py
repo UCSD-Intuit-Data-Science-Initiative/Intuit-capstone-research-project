@@ -1,0 +1,164 @@
+"""Before a run: a rough cost estimate. After a run: a results page from the experiment folder.
+
+    python -m capstone.cli run-families ... --estimate          # print the estimate, run nothing
+    python -m capstone.cli report results/poc1 --out docs/results/poc_run_1.md
+
+The estimate is deliberately simple and errs high. It renders every message each planned run
+sends, assumes ``calls_per_turn`` model calls per turn (the first plus tool-call follow-ups) that
+each resend the whole conversation so far plus the tools and system prompt, and
+``output_tokens_per_call`` output tokens per call (thinking included). Tokens are characters / 4.
+Real runs are logged with exact tokens and cost, so the results page reports what was spent.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+from collections import Counter, defaultdict
+from datetime import datetime
+from pathlib import Path
+from typing import Sequence
+
+from .env import SYSTEM_PROMPT, TOOLS
+from .player import load_family, version_of
+from .view import agent_view, render_message
+
+CHARS_PER_TOKEN = 4
+LOW, HIGH = {"calls_per_turn": 2, "output_tokens_per_call": 400}, {"calls_per_turn": 4, "output_tokens_per_call": 1500}
+
+
+def _tokens(text: str) -> int:
+    return max(1, len(text) // CHARS_PER_TOKEN)
+
+
+def run_tokens(family: dict, version_id: str, mode: str, calls_per_turn: int, output_tokens_per_call: int) -> tuple[int, int]:
+    """(input, output) tokens one run would use under these assumptions."""
+    fixed = _tokens(SYSTEM_PROMPT) + _tokens(json.dumps(TOOLS))
+    context, tokens_in, tokens_out = 0, 0, 0
+    for t in version_of(family, version_id)["conversations"][mode]["turns"]:
+        context += _tokens(render_message(agent_view(t)))
+        for _ in range(calls_per_turn):
+            tokens_in += fixed + context
+            tokens_out += output_tokens_per_call
+            context += output_tokens_per_call // 2   # replies and tool results stay in the conversation
+    return tokens_in, tokens_out
+
+
+def estimate(specs: Sequence, model_configs: dict[str, dict]) -> dict:
+    """Low and high token and cost estimates for a list of FamilyRunSpec."""
+    families: dict[Path, dict] = {}
+    out = {"runs": len(specs), "low": {"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0},
+           "high": {"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}, "priced": True}
+    for s in specs:
+        fam = families.setdefault(s.family_path, load_family(s.family_path))
+        price = (model_configs.get(s.model) or {}).get("price") or {}
+        for name, case in (("low", LOW), ("high", HIGH)):
+            tin, tout = run_tokens(fam, s.version_id, s.mode, **case)
+            out[name]["tokens_in"] += tin
+            out[name]["tokens_out"] += tout
+            if price.get("input") is not None and price.get("output") is not None:
+                out[name]["cost_usd"] += (tin * price["input"] + tout * price["output"]) / 1e6
+            elif (model_configs.get(s.model) or {}).get("provider") != "mock":
+                out["priced"] = False
+    for name in ("low", "high"):
+        out[name]["cost_usd"] = round(out[name]["cost_usd"], 2)
+    return out
+
+
+def format_estimate(est: dict) -> str:
+    lo, hi = est["low"], est["high"]
+    lines = [f"estimate for {est['runs']} runs (rough; real tokens and cost are logged per run):",
+             f"  low   {lo['tokens_in']:>10,} in  {lo['tokens_out']:>9,} out  ${lo['cost_usd']:,.2f}"
+             f"   ({LOW['calls_per_turn']} calls/turn, {LOW['output_tokens_per_call']} out/call)",
+             f"  high  {hi['tokens_in']:>10,} in  {hi['tokens_out']:>9,} out  ${hi['cost_usd']:,.2f}"
+             f"   ({HIGH['calls_per_turn']} calls/turn, {HIGH['output_tokens_per_call']} out/call)"]
+    if not est["priced"]:
+        lines.append("  (no price set for some models in configs/models.yaml, so their cost is not included)")
+    return "\n".join(lines)
+
+
+# ---- results page
+
+
+def _read_csv(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _num(v: str | None) -> float:
+    try:
+        return float(v) if v not in (None, "") else 0.0
+    except ValueError:
+        return 0.0
+
+
+def render_report(out_dir: str | Path, title: str | None = None) -> str:
+    """A Markdown results page from runs.csv, labels.csv and experiment.json."""
+    out_dir = Path(out_dir)
+    runs = _read_csv(out_dir / "runs.csv")
+    labels = _read_csv(out_dir / "labels.csv")
+    exp = json.loads((out_dir / "experiment.json").read_text()) if (out_dir / "experiment.json").exists() else {}
+    done = [r for r in runs if r["status"] == "completed"]
+    models = sorted({r["model"] for r in runs})
+    model_ids = {n: (cfg or {}).get("model") for n, cfg in (exp.get("models") or {}).items()}
+    cost = sum(_num(r.get("cost_usd")) for r in done)
+    L = [f"# {title or 'Results: ' + out_dir.name}", "",
+         f"Generated by `python -m capstone.cli report {out_dir}` (do not edit by hand) on "
+         f"{datetime.now().date().isoformat()}.", "",
+         f"- Models: {', '.join(f'{m} ({model_ids.get(m) or m})' for m in models) or '-'}",
+         f"- Runs: {len(runs)} ({len(done)} completed, {len(runs) - len(done)} errored)",
+         f"- Families: {', '.join(sorted({r['case_id'] for r in runs})) or '-'}; modes: "
+         f"{', '.join(sorted({r['mode'] for r in runs})) or '-'}",
+         f"- Tokens: {int(sum(_num(r.get('tokens_in')) for r in done)):,} in, "
+         f"{int(sum(_num(r.get('tokens_out')) for r in done)):,} out; cost ${cost:,.2f}",
+         f"- Passed: {sum(r['passed'] == 'True' for r in done)} of {len(done)}", ""]
+
+    L += ["## Pass rate by version", "",
+          "| Version | Type | " + " | ".join(f"{m} {mode}" for m in models for mode in ("unscripted", "scripted")) + " |",
+          "|---|---|" + "---:|" * (2 * len(models))]
+    by = defaultdict(list)
+    for r in done:
+        by[(r["version"], r["case_type"], r["model"], r["mode"])].append(r["passed"] == "True")
+    versions = sorted({(r["version"], r["case_type"]) for r in done},
+                      key=lambda v: (int(v[0].rstrip("ab")), v[0]))
+    for vid, vtype in versions:
+        cells = []
+        for m in models:
+            for mode in ("unscripted", "scripted"):
+                xs = by.get((vid, vtype, m, mode), [])
+                cells.append(f"{sum(xs)}/{len(xs)}" if xs else "-")
+        L.append(f"| {vid} | {vtype} | " + " | ".join(cells) + " |")
+
+    L += ["", "## Decisions", "", "| Decision | Runs |", "|---|---:|"]
+    for d, n in Counter(r.get("check_decision") for r in done).most_common():
+        L.append(f"| {d} | {n} |")
+
+    L += ["", "## Changes to the record", "",
+          f"- Invalid changes attempted: {int(sum(_num(r.get('check_attempted_invalid')) for r in done))}",
+          f"- Invalid changes that went through: {int(sum(_num(r.get('check_accepted_invalid')) for r in done))}",
+          f"- Runs whose final record was wrong: {sum(bool(r.get('check_final_record_failures')) for r in done)}", ""]
+
+    problems = [l for l in labels if _num(l.get("severity")) > 0]
+    L += ["## Problem labels", "", "| Label | Group | Runs | Max severity |", "|---|---|---:|---:|"]
+    runs_with = defaultdict(set)
+    sev = defaultdict(float)
+    group = {}
+    for l in problems:
+        runs_with[l["label"]].add(l["run_id"])
+        sev[l["label"]] = max(sev[l["label"]], _num(l["severity"]))
+        group[l["label"]] = l["group"]
+    for name in sorted(runs_with, key=lambda k: (-len(runs_with[k]), k)):
+        L.append(f"| {name} | {group[name]} | {len(runs_with[name])} | {int(sev[name])} |")
+    if not problems:
+        L.append("| none | | | |")
+
+    L += ["", "## Runs", "", "| Run | Passed | Decision | Problem labels | Tokens in/out | Cost |",
+          "|---|---|---|---|---:|---:|"]
+    for r in sorted(done, key=lambda r: r["run_id"]):
+        L.append(f"| `{r['run_id']}` | {r['passed']} | {r.get('check_decision')} | {r.get('check_labels') or '-'} | "
+                 f"{int(_num(r.get('tokens_in'))):,}/{int(_num(r.get('tokens_out'))):,} | ${_num(r.get('cost_usd')):.3f} |")
+    L += ["", "Traces: `" + str(out_dir / "traces") + "` (git-ignored). Noticing and consistency are not "
+          "labelled by code; read the traces (`python -m capstone.cli show <trace>`) for those.", ""]
+    return "\n".join(L)

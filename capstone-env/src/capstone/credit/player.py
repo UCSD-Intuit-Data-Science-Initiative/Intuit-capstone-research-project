@@ -185,6 +185,8 @@ def run_family_one(spec: FamilyRunSpec, model_configs: dict[str, dict], settings
     fam = json.loads(raw)
     gold = version_of(fam, spec.version_id)["gold"]
     limits = Limits(tool_calls_per_turn=settings.max_tool_calls)
+    if getattr(settings, "seconds_per_turn", None):
+        limits.seconds_per_turn = settings.seconds_per_turn   # recorded in the trace's settings
     trace = Trace(
         run_id=spec.run_id, case_id=spec.family_id, case_version=spec.version_id, case_type=spec.version_type,
         case_file=str(spec.family_path), case_hash=family_hash(raw), env="credit_renewal",

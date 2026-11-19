@@ -227,7 +227,9 @@ def test_models_config_has_no_model_ids_filled_in():
     from capstone.models import load_model_configs
     configs = load_model_configs(ROOT / "configs" / "models.yaml")
     assert {c["provider"] for c in configs.values()} == {"anthropic", "openai", "openrouter", "mock"}
-    assert all(not c.get("model") for c in configs.values())
+    # Only `claude` is chosen (Stage 6 PR 4, the first real run); every other id stays blank until picked.
+    assert configs["claude"]["model"] == "claude-opus-5-5"
+    assert all(not c.get("model") for name, c in configs.items() if name != "claude")
 
 
 # ---- Provider adapters --------------------------------------------------------------
@@ -256,6 +258,9 @@ def test_openai_messages_and_tool_argument_parsing():
     out = to_openai_messages("rules", NEUTRAL)
     assert [m["role"] for m in out] == ["system", "user", "assistant", "tool", "user"]
     assert json.loads(out[2]["tool_calls"][0]["function"]["arguments"]) == {"invoice_id": "INV-1001"}
+    # a reply that is only tool calls is sent with "" content, never null (Ollama refuses null)
+    only_calls = to_openai_messages("", [{**NEUTRAL[1], "content": ""}])
+    assert only_calls[0]["content"] == "" and only_calls[0]["tool_calls"]
     assert parse_tool_args('{"a": 1}') == ({"a": 1}, None)
     assert parse_tool_args('{"a": ') == ({}, '{"a": ')
     assert parse_tool_args("[1]") == ({}, "[1]")

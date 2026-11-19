@@ -73,12 +73,17 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
 - [x] PR 3 grader v0 — merged as #7 (Nov 15): `credit/grader.py`, labels in 5 groups with
   the codebook fields, attempted / accepted / final invalid changes counted apart, stale-reasoning labels from
   the versioned record; default checker of run-families; `cli grade`; 461 tests.
-- [ ] PR 4 first real run (next)
-- [ ] Pre-PR 4 fixes — branch `stage6/pre-pr4-fixes` (Nov 16): the five issues from the PR 2/3 reviews
+- [x] Pre-PR 4 fixes — branch `stage6/pre-pr4-fixes` (Nov 16; merged #8, Nov 19): the five issues from the PR 2/3 reviews
   (Nov 15): 5b `evidence_requested` ending; grader refuses a family file that changed since the run
   (`case_hash`, override `--allow-family-change`); `wrong_change_type_at_end` final failure;
   `stale_calculation_cited` by figures, not versions; schema-checked tool calls, tool bugs are ungraded
   errors. Oracle test over all 72 conversations. Details: docs/architecture_plan.md "Fixed before PR 4".
+- [ ] PR 4 first real run — `stage6/first-run`, stacked on PR 3 (Nov 13): claude = claude-opus-5-5 (effort high,
+  no fallbacks), `make poc-estimate` (36 runs, ~$12-$77), `make poc` (run + `docs/results/poc_run_1.md` via
+  `cli report`), grader labels model_refusal / output_truncated. Nov 19: main (#8) merged in; set-up proven with a
+  local model (Qwen 3.5 9B via Ollama, 36/36 runs completed, no tool bugs); fixes from that run: empty (not null)
+  assistant content for OpenAI-compatible servers, progress lines with time left, `--seconds-per-turn`; 567 tests.
+  Claude run not done yet: no ANTHROPIC_API_KEY.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -330,6 +335,9 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - 2026-11-12 PR 1: langfuse 5.2.0 added (requirements.txt `>=5.2,<6`; lock regenerated with uv keeping every
   existing pin, adds langfuse + otel exporter/sdk 1.45.1 + protobuf). Export is post-hoc from saved traces
   (`observe.py`): Langfuse times are export times, real timings stay in step metadata.
+- 2026-11-13 Stage 6 PRs 3-4 built (Ishaan asked for both). Grader v0 is the default checker of run-families.
+  First real run set up on claude-opus-5-5 with effort high and no server-side fallbacks (a fallback would
+  answer with another model and blur which model was measured); not run, no API key on this machine yet.
 - 2026-11-16 Pre-PR 4 fixes (Sophia, from the Nov 15 reviews of PRs 2-3), on `stage6/pre-pr4-fixes`:
   (A) Asking for proof means the `request_evidence` tool only; a plain-text request is left for human review
   (settles the open question). (B) `request_evidence` in reply to the final-decision request ends the run as

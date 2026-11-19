@@ -12,7 +12,7 @@ export GID := $(shell id -g)
 IMAGE      := d23-capstone:latest
 COMPOSE    := docker compose
 
-.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select family family-check run run-families demo
+.PHONY: build build-guard shell jupyter smoke test data data-lock data-verify profile select family family-check run run-families demo poc-estimate poc
 
 ## build        – build the base image
 build:
@@ -83,3 +83,14 @@ run-families:
 ## demo         – Stage 6 local demo: four scripted mock agents through F001 (no keys, no cost)
 demo:
 	$(COMPOSE) run --rm dev python -m capstone.credit.demo
+
+## poc-estimate – Stage 6 PR 4: rough cost of the first real run (S01 + F001, 9 versions x 2 modes, claude)
+POC_ARGS := --families data/families/smoke/S01 data/families/pilot/F001 --model claude --k 1 --out results/poc1
+poc-estimate:
+	$(COMPOSE) run --rm dev python -m capstone.cli run-families $(POC_ARGS) --estimate
+
+## poc          – Stage 6 PR 4: the first real run (needs ANTHROPIC_API_KEY in .env; costs money), then the page
+poc:
+	$(COMPOSE) run --rm dev python -m capstone.cli run-families $(POC_ARGS) $(ARGS)
+	$(COMPOSE) run --rm dev python -m capstone.cli report results/poc1 --out docs/results/poc_run_1.md \
+		--title "First real run (S01 + F001)"

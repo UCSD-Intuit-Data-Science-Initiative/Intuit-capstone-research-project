@@ -151,7 +151,8 @@ def to_openai_messages(system: str, messages: list[dict]) -> list[dict]:
         elif m["role"] == "tool":
             out.append({"role": "tool", "tool_call_id": m["tool_call_id"], "content": m["content"]})
         else:
-            msg: dict[str, Any] = {"role": "assistant", "content": m["content"] or None}
+            # "" rather than None: Ollama rejects a null content ("invalid message content type: <nil>")
+            msg: dict[str, Any] = {"role": "assistant", "content": m["content"] or ""}
             if m["tool_calls"]:
                 msg["tool_calls"] = [
                     {"id": c.id, "type": "function",

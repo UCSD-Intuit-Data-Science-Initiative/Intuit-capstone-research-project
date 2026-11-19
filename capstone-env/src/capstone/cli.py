@@ -168,11 +168,16 @@ def cmd_run_families(args: argparse.Namespace) -> int:
     specs = plan_family_runs(paths, args.versions, modes, args.model, args.k)
     print(f"{len(paths)} families x {len(args.versions) if args.versions else 'all'} versions x {len(modes)} modes "
           f"x {len(args.model)} models x {args.k} repeats = {len(specs)} runs -> {args.out}")
+    if args.estimate:
+        from .credit.report import estimate, format_estimate
+        print(format_estimate(estimate(specs, configs)))
+        return 0
     if args.dry_run:
         return 0
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    settings = Settings(max_tool_calls=args.max_tool_calls, workers=args.workers, retries=args.retries)
+    settings = Settings(max_tool_calls=args.max_tool_calls, workers=args.workers, retries=args.retries,
+                        seconds_per_turn=args.seconds_per_turn)
     (out / "experiment.json").write_text(json.dumps({
         "command": sys.argv, "started_at": datetime.now().isoformat(timespec="seconds"),
         "families": [str(p) for p in paths], "versions": args.versions, "modes": modes,
@@ -227,6 +232,18 @@ def cmd_grade(args: argparse.Namespace) -> int:
     print(f"labels: {Path(args.out) / 'labels.csv'}")
     _print_skipped(skipped)
     return 1 if skipped else 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    from .credit.report import render_report
+    text = render_report(args.out_dir, args.title)
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(f"wrote {args.out}")
+    else:
+        print(text)
+    return 0
 
 
 def cmd_score(args: argparse.Namespace) -> int:
@@ -331,9 +348,18 @@ def main(argv: list[str] | None = None) -> int:
     rf.add_argument("--models-config", default=DEFAULT_MODELS_CONFIG)
     rf.add_argument("--checker", default=CREDIT_CHECKER)
     rf.add_argument("--dry-run", action="store_true")
+    rf.add_argument("--seconds-per-turn", type=float,
+                    help="wall-clock limit per agent turn (default 120); raise it for slow local models")
+    rf.add_argument("--estimate", action="store_true", help="print a rough token and cost estimate, run nothing")
     rf.add_argument("--langfuse", action="store_true", help="also copy the finished traces to Langfuse")
     rf.add_argument("--allow-family-change", action="store_true", help=ALLOW_HELP)
     rf.set_defaults(func=cmd_run_families)
+
+    rp = sub.add_parser("report", help="results page (Markdown) from a credit experiment folder")
+    rp.add_argument("out_dir")
+    rp.add_argument("--out", help="write the page here (default: print it)")
+    rp.add_argument("--title")
+    rp.set_defaults(func=cmd_report)
 
     g = sub.add_parser("grade", help="label saved credit runs (labels/<run>.json and labels.csv)")
     g.add_argument("out")
