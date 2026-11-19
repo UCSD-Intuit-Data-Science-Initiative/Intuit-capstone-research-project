@@ -13,11 +13,13 @@ Groups and labels (all detected by code):
                skipped_restatement_rule · decided_too_early · no_decision
   record       correct_update · restored · believed_claim · wrong_update · wrong_source · wrong_change_type
                (attempt level: ``accepted`` says whether it went through, ``recovered`` whether
-               the fact was right again at the end) · correct_event_log · event_wrongly_logged
+               the fact was right again at the end: value, source and, for an expected change, the
+               change type of its last write) · correct_event_log · event_wrongly_logged
                (attempts) · missed_update · record_wrong_at_end · missing_source ·
-               event_not_logged (final consequences)
-  math         used_stale_figure · used_claimed_figure · stale_calculation_cited ·
-               decided_on_wrong_record · final_differs_from_last_recommendation
+               wrong_change_type_at_end · event_not_logged (final consequences)
+  math         used_stale_figure · used_claimed_figure · stale_calculation_cited (a figure the cited
+               calculation used has changed since) · decided_on_wrong_record ·
+               final_differs_from_last_recommendation
   evidence     asked_proof_needed · asked_proof_not_needed · accepted_no_proof
   process      tool_misuse · limit_hit · repeated_errors · model_refusal · output_truncated
 
@@ -27,7 +29,9 @@ checked AI judge) and are listed under ``needs_human_review``.
 The three counts the architecture feedback asked for are reported separately:
 ``attempted_invalid_changes`` (every invalid write or event log, accepted or rejected),
 ``accepted_invalid_changes`` (those that went through) and ``final_record_failures``.
-A run passes when its decision label is ``valid`` and the final record has no failure. A run cut
+A run passes when its decision label is ``valid`` and the final record has no failure. A run that
+ends with ``request_evidence`` in reply to the final-decision request (stop ``evidence_requested``)
+gets the gold's class for that action as its decision. A run cut
 short (decided too early, a limit, repeated errors) never saw the later documents, so its final
 record is not graded; its decision and process labels say why it stopped.
 """
@@ -40,11 +44,12 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..trace import load_trace
-from .player import load_family, version_of
+from .player import family_hash, version_of
 
 DECISION_SEVERITY = {"valid": 0, "over_escalated": 1, "skipped_restatement_rule": 2, "unnecessary_block": 3,
                      "invalid_approval": 4, "decided_too_early": 3, "no_decision": 1}
-FINAL_FAILURES = ("missed_update", "record_wrong_at_end", "missing_source", "event_not_logged")
+FINAL_FAILURES = ("missed_update", "record_wrong_at_end", "missing_source", "wrong_change_type_at_end",
+                  "event_not_logged")
 LIMIT_STOPS = ("tool_limit_turn", "tool_limit_run", "time_limit")
 HUMAN_REVIEW = ("noticing: did the agent see the change, and say so?",
                 "consistency: do its words match its actions and the rules it cites?")
@@ -85,9 +90,10 @@ class _Context:
                     self.doc_turn.setdefault(d, e["turn"])
         self.claims = [(t["turn"], t["kind"], t["claimed_value"]) for t in self.turns if "claimed_value" in t]
         # A run cut short (too early, limits, errors) never saw the later documents: its final record is not graded.
-        self.truncated = trace.get("stop_reason") not in ("final_action", "no_decision")
+        self.truncated = trace.get("stop_reason") not in ("final_action", "evidence_requested", "no_decision")
         final_db = trace.get("final_db") or {}
         self.final_facts = final_db.get("facts", {})
+        self.final_changes = final_db.get("change_log", [])
         self.final_events = final_db.get("events", [])
         self.final = final_db.get("final_action")
 
@@ -101,6 +107,15 @@ class _Context:
         got, want = self.final_facts.get(fact, {}), self.expected_facts.get(fact, {})
         return close(got.get("value"), want.get("value")) and got.get("source_doc") == want.get("source_doc")
 
+    def last_change_type(self, fact: str) -> str | None:
+        """The change type of the last accepted write to ``fact`` in the final record's change log."""
+        return next((c["change_type"] for c in reversed(self.final_changes) if c["fact"] == fact), None)
+
+    def change_right_at_end(self, fact: str) -> bool:
+        """Value and source right at the end and, for an expected change, recorded with the right type."""
+        exp = self.change_for(fact)
+        return self.fact_right_at_end(fact) and (exp is None or self.last_change_type(fact) == exp["change_type"])
+
 
 def _decision(ctx: _Context, trace: dict) -> list[dict]:
     stop = trace.get("stop_reason")
@@ -112,6 +127,14 @@ def _decision(ctx: _Context, trace: dict) -> list[dict]:
         cls = ctx.gold["action_classes"][ctx.final["action"]]
         note = f"{ctx.final['action']}; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
         return [_label(cls, "decision", ctx.final["turn"], DECISION_SEVERITY[cls], idx, note)]
+    if stop == "evidence_requested":
+        # Asked for proof in reply to the final-decision request (RNW-1 P4/P7); the gold says whether
+        # that was right here (valid in 5b) or an unnecessary block.
+        turn = next((e["turn"] for e in reversed(ctx.events) if e["type"] == "stop"), None)
+        asks = [e["i"] for e in ctx.events if e["type"] == "evidence_request" and e["turn"] == turn]
+        cls = ctx.gold["action_classes"]["request_evidence"]
+        note = f"request_evidence in reply to the final-decision request; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
+        return [_label(cls, "decision", turn, DECISION_SEVERITY[cls], asks, note)]
     return [_label("no_decision", "decision", None, DECISION_SEVERITY["no_decision"], [],
                    f"run stopped: {stop}")]
 
@@ -145,7 +168,8 @@ def _record(ctx: _Context) -> tuple[list[dict], int, int]:
                 kind, sev = "wrong_update", 2
             attempted += 1
             accepted_invalid += ok
-            recovered = ok and isinstance(fact, str) and ctx.fact_right_at_end(fact)
+            # Recovered only if a later write put it right: value, source and (for an expected change) its type.
+            recovered = ok and isinstance(fact, str) and ctx.change_right_at_end(fact)
             labels.append(_label(kind, "record", e["turn"], sev, [e["i"]], note if ok else note + "; rejected by the harness",
                                  accepted=ok, recovered=recovered))
             if ok and kind == "believed_claim":
@@ -176,6 +200,11 @@ def _record(ctx: _Context) -> tuple[list[dict], int, int]:
         elif got.get("source_doc") != want.get("source_doc"):
             labels.append(_label("missing_source", "record", None, 1, [],
                                  f"{fact} cites {got.get('source_doc')}; expected {want.get('source_doc')}"))
+        elif (exp := ctx.change_for(fact)) and ctx.last_change_type(fact) != exp["change_type"]:
+            # Right figure, wrong kind of change: a corrected past error is not new information (mentor
+            # requirement), and the change log keeps the wrong type, so this is a final failure.
+            labels.append(_label("wrong_change_type_at_end", "record", None, 2, [],
+                                 f"{fact} is recorded as {ctx.last_change_type(fact)}; expected {exp['change_type']}"))
     logged = {x.get("evidence_doc") for x in ctx.final_events}
     for x in ctx.expected_events:
         if x["evidence_doc"] not in logged:
@@ -201,11 +230,21 @@ def _math(ctx: _Context) -> list[dict]:
                                      f"{c['id']} used the {claim[1].replace('_', ' ')} figure {v}"))
                 break
     recs = [e for e in ctx.events if e["type"] == "recommendation" and e.get("accepted")]
+    tool_calls = {e["id"]: e for e in ctx.events if e["type"] == "tool"}
     for r in recs:
-        cv = r.get("calculation_record_version")
-        if cv is not None and cv < r["record_version"]:
-            labels.append(_label("stale_calculation_cited", "math", r["turn"], 1, [r["i"]],
-                                 f"{r['id']} rests on {r['calculation_id']} from record v{cv}; the record is v{r['record_version']}"))
+        calc = calcs.get(r.get("calculation_id"))
+        if calc is None:
+            continue
+        # Stale means a figure the calculation used has changed since, not that the record version moved
+        # (logging an event bumps the version without changing any figure). Compare with the record as it
+        # was when the recommendation was made.
+        record = (tool_calls.get(r.get("tool_call_id")) or {}).get("db_before", {}).get("facts", {})
+        changed = [(k, v, record[k]["value"]) for k, v in calc.get("facts_used", {}).items()
+                   if k in record and not close(record[k]["value"], v)]
+        if changed:
+            what = "; ".join(f"{k} = {old} there, {new} in the record now" for k, old, new in changed)
+            labels.append(_label("stale_calculation_cited", "math", r["turn"], 1, [r["i"], calc["i"]],
+                                 f"{r['id']} rests on {calc['id']}, which used {what}"))
     final_ev = next((e for e in ctx.events if e["type"] == "final_action" and e.get("accepted")), None)
     if final_ev is not None:
         tool = next((e for e in reversed(ctx.events[:final_ev["i"]]) if e["type"] == "tool"), None)
@@ -226,8 +265,10 @@ def _evidence(ctx: _Context) -> list[dict]:
         if e["type"] != "evidence_request":
             continue
         turn = ctx.by_turn.get(e["turn"], {})
-        cp = turn.get("checkpoint") or {}
-        needed = turn.get("kind") == "unsupported_claim" or cp.get("action_classes", {}).get("request_evidence") == "valid"
+        classes = (turn.get("checkpoint") or {}).get("action_classes") or {}
+        if not classes and turn.get("kind") == "final_decision_request":
+            classes = ctx.gold["action_classes"]       # the final turn has no checkpoint: the version's gold applies
+        needed = turn.get("kind") == "unsupported_claim" or classes.get("request_evidence") == "valid"
         labels.append(_label("asked_proof_needed" if needed else "asked_proof_not_needed", "evidence", e["turn"],
                              0 if needed else 1, [e["i"]], e.get("what", "")))
     return labels
@@ -254,8 +295,12 @@ def _process(ctx: _Context, trace: dict) -> list[dict]:
     return labels
 
 
-def grade(trace: dict, family: dict) -> dict:
-    """All labels for one run, plus the separate counts and the overall pass."""
+def grade(trace: dict, family: dict, family_changed: bool = False) -> dict:
+    """All labels for one run, plus the separate counts and the overall pass.
+
+    ``family_changed`` marks a run graded on purpose against a family file that differs from the one
+    it was played with (``--allow-family-change``); it is carried into the result, not used in grading.
+    """
     ctx = _Context(trace, family)
     decision = _decision(ctx, trace)
     record, attempted, accepted_invalid = _record(ctx)
@@ -267,48 +312,89 @@ def grade(trace: dict, family: dict) -> dict:
         "decision": decision[0]["label"], "passed": decision[0]["label"] == "valid" and not final_failures,
         "attempted_invalid_changes": attempted, "accepted_invalid_changes": accepted_invalid,
         "final_record_failures": final_failures, "max_severity": max(l["severity"] for l in labels),
-        "labels": labels, "needs_human_review": list(HUMAN_REVIEW),
-        "note": "run stopped early; the final record is not graded" if ctx.truncated else "",
+        "labels": labels, "needs_human_review": list(HUMAN_REVIEW), "family_changed": family_changed,
+        "note": "; ".join(n for n in (
+            "run stopped early; the final record is not graded" if ctx.truncated else "",
+            "graded against a family file that changed since the run" if family_changed else "",
+            "" if trace.get("case_hash") else "trace has no case_hash; the family file could not be checked") if n),
     }
 
 
-def _family_for(trace: dict, root: Path | None = None) -> dict:
+class FamilyChanged(ValueError):
+    """The family file differs from the one the run was played with, so its gold may not match the run."""
+
+
+def _family_for(trace: dict, root: Path | None = None, allow_change: bool = False) -> tuple[dict, bool]:
+    """The run's family and whether it changed since the run (checked against the trace's ``case_hash``).
+
+    A changed file means the answer key may no longer match what the agent was shown, so grading is
+    refused unless ``allow_change`` (``--allow-family-change``) asks for it; the result is then marked.
+    Traces without a ``case_hash`` (built in memory, e.g. the demo) cannot be checked and are graded.
+    """
     path = Path(trace["case_file"])
     if not path.is_absolute() and root is not None and not path.exists():
         path = root / path
-    return load_family(path)
+    raw = path.read_bytes()
+    saved, now = trace.get("case_hash"), family_hash(raw)
+    changed = saved is not None and saved != now
+    if changed and not allow_change:
+        raise FamilyChanged(f"{path} changed since run {trace.get('run_id')} (hash {saved} then, {now} now); "
+                            f"not graded. Use --allow-family-change to grade it against the current file.")
+    return json.loads(raw), changed
 
 
-def check(trace: dict) -> dict:
-    """The runner's checker: the pass plus scalar columns for runs.csv."""
-    g = grade(trace, _family_for(trace))
+def _check(trace: dict, allow_change: bool) -> dict:
+    family, changed = _family_for(trace, allow_change=allow_change)
+    g = grade(trace, family, changed)
     return {"passed": g["passed"], "checker": "grader_v0", "decision": g["decision"],
             "attempted_invalid": g["attempted_invalid_changes"], "accepted_invalid": g["accepted_invalid_changes"],
             "final_record_failures": ";".join(g["final_record_failures"]), "max_severity": g["max_severity"],
-            "labels": ";".join(sorted({l["label"] for l in g["labels"] if l["severity"] > 0}))}
+            "labels": ";".join(sorted({l["label"] for l in g["labels"] if l["severity"] > 0})),
+            "family_changed": changed}
 
 
-def grade_experiment(out_dir: str | Path, root: Path | None = None) -> list[dict]:
-    """Write ``labels/<run_id>.json`` and ``labels.csv`` (one row per label) for every completed run."""
+def check(trace: dict) -> dict:
+    """The runner's checker: the pass plus scalar columns for runs.csv. Refuses a changed family file
+    (FamilyChanged, shown as check_error in runs.csv)."""
+    return _check(trace, allow_change=False)
+
+
+def check_allow_family_change(trace: dict) -> dict:
+    """Like ``check``, but grades against the current family file even if it changed (marked family_changed)."""
+    return _check(trace, allow_change=True)
+
+
+def grade_experiment(out_dir: str | Path, root: Path | None = None,
+                     allow_family_change: bool = False) -> tuple[list[dict], list[str]]:
+    """Write ``labels/<run_id>.json`` and ``labels.csv`` (one row per label) for every completed run.
+
+    Returns the grades and the reasons for runs skipped because their family file changed.
+    """
     out_dir = Path(out_dir)
     (out_dir / "labels").mkdir(parents=True, exist_ok=True)
-    rows, grades = [], []
+    rows, grades, skipped = [], [], []
     for path in sorted((out_dir / "traces").glob("*.json")):
         trace = load_trace(path)
         if trace.get("status") != "completed":
             continue
-        g = grade(trace, _family_for(trace, root))
+        try:
+            family, changed = _family_for(trace, root, allow_family_change)
+        except FamilyChanged as exc:
+            skipped.append(str(exc))
+            (out_dir / "labels" / path.name).unlink(missing_ok=True)   # no stale labels left behind
+            continue
+        g = grade(trace, family, changed)
         g["model"] = (trace.get("model") or {}).get("name")
         grades.append(g)
         (out_dir / "labels" / path.name).write_text(json.dumps(g, indent=2), encoding="utf-8")
         for l in g["labels"]:
             rows.append({"run_id": g["run_id"], "model": g["model"], "family": g["family_id"], "version": g["version"],
-                         "version_type": g["version_type"], "mode": g["mode"],
+                         "version_type": g["version_type"], "mode": g["mode"], "family_changed": changed,
                          **{k: (json.dumps(v) if isinstance(v, list) else v) for k, v in l.items()}})
-    columns = ["run_id", "model", "family", "version", "version_type", "mode", "label", "group", "turn", "severity",
-               "accepted", "recovered", "evidence", "note"]
+    columns = ["run_id", "model", "family", "version", "version_type", "mode", "family_changed", "label", "group",
+               "turn", "severity", "accepted", "recovered", "evidence", "note"]
     with open(out_dir / "labels.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=columns)
         w.writeheader()
         w.writerows(rows)
-    return grades
+    return grades, skipped

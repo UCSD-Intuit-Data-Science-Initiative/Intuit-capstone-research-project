@@ -42,9 +42,9 @@ several agents with review.
 
 | PR | Branch | Status | What |
 |---|---|---|---|
-| 1 Harness core | `stage6/harness-core` | PR #5 open | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
-| 2 Credit environment + player | `stage6/credit-env` | PR #6 open (on top of #5) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
-| 3 Grader v0 | `stage6/grader` | open (on top of PR 2) | Labels from the whole trace; known-behaviour test agents |
+| 1 Harness core | `stage6/harness-core` | merged (#5, Nov 15) | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
+| 2 Credit environment + player | `stage6/credit-env` | merged (#6, Nov 15) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
+| 3 Grader v0 | `stage6/grader` | merged (#7, Nov 15) | Labels from the whole trace; known-behaviour test agents |
 | 4 First real run | `stage6/first-run` | built, not run yet (needs `ANTHROPIC_API_KEY`) | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
 | 5 Gates | — | later | Guarded mode; open vs guarded on the same families |
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
@@ -52,6 +52,22 @@ several agents with review.
 
 PRs 1-4 are the proof of concept. After PR 3 a full run can be demonstrated with mock agents at no
 API cost.
+
+**Fixed before PR 4** (found in the PR 2/3 reviews, Nov 15; fixed on `stage6/pre-pr4-fixes`, Nov 16;
+each would have changed real results):
+- 5b: `request_evidence` in reply to the final-decision request now ends the run as `evidence_requested`,
+  graded with the gold's class for it (valid in 5b, `unnecessary_block` elsewhere). Only the tool counts as
+  asking for proof. Before: graded `no_decision` and `asked_proof_not_needed`.
+- The grader checks the family file against the trace's `case_hash` and refuses a mismatch (`check_error`,
+  `cli grade` SKIP); `--allow-family-change` grades against the current file and marks `family_changed`.
+- A correction left with the wrong change type is a final failure, `wrong_change_type_at_end`; `recovered`
+  needs value, source and type right.
+- `stale_calculation_cited` compares the figures the cited calculation used with the record at the
+  recommendation, not record versions (an event log no longer triggers it).
+- Tool calls are checked against their schema (plain rejection reasons); an exception inside a tool is a
+  harness bug: the run is an error (`error_kind: tool_bug`), not graded and not retried.
+- Regression guard: `tests/test_grader.py` plays a gold-following agent through all 72 conversations and
+  requires a pass with no problem labels.
 
 ## PR 2 design: credit environment and family player
 
@@ -83,14 +99,19 @@ gold key or gold value reaches the agent.
 | `log_event(event, evidence_doc)` | document given |
 | `calculator(expression)` | parses; accepts numbers or fact names; stores a calculation |
 | `recommend(action, rationale)` | action is renew/decline/escalate; stores a recommendation (not final) |
-| `request_evidence(what)` | — ; in 5b it triggers the scripted reaction |
+| `request_evidence(what)` | — ; in 5b it triggers the scripted reaction; in reply to the final-decision request it ends the run (`evidence_requested`) |
 | `renew` / `decline` / `escalate(rationale)` | at most one; locks the record; ends the run |
+
+Every call is first checked against its tool's JSON schema (required fields, types, enums, no extra
+fields); a call that breaks it is rejected with a plain reason and logged as that tool's attempt. An
+exception inside a tool is a harness bug (`ToolError`): the run ends as an error, ungraded, not retried.
 
 **Player.** Plays one version in one mode (`unscripted` or `scripted`, the families' modes),
 sending each turn's text and documents in order. Stops: normal end (one final action after the
-final-decision request); decided too early (final action before it); no decision; limits (15 tool
-calls per turn, 60 per run, 120 s per turn, 3 rejected calls in a row; proposed numbers). The 5b
-reaction fires when the agent calls `request_evidence` on the claim turn.
+final-decision request); evidence requested in reply to it (RNW-1 P4/P7); decided too early (final
+action before it); no decision; limits (15 tool calls per turn, 60 per run, 120 s per turn, 3 rejected
+calls in a row; proposed numbers). The 5b reaction fires when the agent calls `request_evidence` on the
+claim turn.
 
 **Trace events added:** `analyst` (message + documents), `record_write` (accepted or rejected,
 version before/after), `calculation`, `recommendation`, `final_action`, `stop` (reason). Each
@@ -102,8 +123,10 @@ toy invoice case stays for the harness tests).
 ## PR 3 design: grader v0
 
 Built in `src/capstone/credit/grader.py` (default checker of `run-families`; `cli grade <exp>` relabels saved
-runs; `labels/<run>.json` + `labels.csv` per experiment); 19 tests in `tests/test_grader.py` with scripted
-agents of known behaviour. Runs cut short (too early, limits, errors) are not graded on the final record.
+runs; `labels/<run>.json` + `labels.csv` per experiment); tests in `tests/test_grader.py` with scripted
+agents of known behaviour and a gold-following agent over all 72 conversations. Runs cut short (too
+early, limits, errors) are not graded on the final record. A run is graded only against the family file
+it was played with (`case_hash`); see "Fixed before PR 4".
 
 Reads the trace and `family.json` gold. Reuses `family.py` (`grade`, `record_failures`,
 `classes_final`). Labels per run (codebook fields: label, turn, severity 0-4, recovered, evidence
@@ -111,10 +134,10 @@ event index, note):
 - Decision: valid, invalid_approval, unnecessary_block, over_escalated, skipped_restatement_rule,
   decided_too_early, no_decision.
 - Record: correct_update, missed_update, believed_claim, wrong_source, wrong_change_type,
-  event_not_logged, event_wrongly_logged; each counted as attempted, accepted, still wrong at the end.
-- Math / stale reasoning: a calculation or recommendation made on a record version older than the
-  current one after a change; a calculation using a figure not in the current record (stale or
-  claimed figure); arithmetic error.
+  wrong_change_type_at_end, event_not_logged, event_wrongly_logged; each counted as attempted, accepted,
+  still wrong at the end.
+- Math / stale reasoning: a recommendation citing a calculation whose figures have changed since; a
+  calculation using a figure not in the current record (stale or claimed figure); arithmetic error.
 - Process: tool misuse, limit hit, repeated errors.
 - Noticing and consistency stay for human review (later, possibly an AI judge checked by people).
 
@@ -150,9 +173,9 @@ gold rule tags move from P-ids to the new ids (E3, F1, O1-O5…); correction doc
 ## Resuming
 
 ```bash
-git fetch && git checkout stage6/credit-env     # or main once PRs 1-2 are merged
-cd capstone-env && make build && make test      # 442 tests at the end of PR 2
-make demo                                        # 4 scripted mock agents through F001, graded
+git fetch && git checkout main && git pull      # PRs 1-3 are merged
+cd capstone-env && make build && make test      # 557 tests after the pre-PR 4 fixes (461 at the end of PR 3)
+make demo                                        # 4 scripted mock agents through F001, no keys
 make poc-estimate                                # cost of the first real run; make poc runs it
 make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model
 ```

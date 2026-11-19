@@ -5,6 +5,9 @@ to ``read_document`` and as evidence. The agent may call tools until it replies 
 stops at the first of:
 
   final_action        a final action after the final-decision request (the normal end)
+  evidence_requested  no final action, but ``request_evidence`` in reply to the final-decision request
+                      (RNW-1 P4/P7: asking for proof instead of deciding; the grader reads its class from
+                      the gold, e.g. valid in 5b and unnecessary_block elsewhere)
   decided_too_early   a final action before it
   tool_limit_turn     more tool calls in one turn than ``Limits.tool_calls_per_turn``
   tool_limit_run      more tool calls in the run than ``Limits.tool_calls_per_run``
@@ -36,13 +39,13 @@ from typing import Sequence
 from ..agent import DEFAULT_MAX_TOOL_CALLS, run_agent_turn
 from ..models import Model, make_model
 from ..trace import Trace
-from .env import CreditRenewalEnv
+from .env import CreditRenewalEnv, ToolError
 from .view import agent_view, render_message
 
 MODES = ("unscripted", "scripted")
 DEFAULT_FAMILIES = "data/families"
-STOP_REASONS = ("final_action", "decided_too_early", "tool_limit_turn", "tool_limit_run", "time_limit",
-                "repeated_errors", "no_decision")
+STOP_REASONS = ("final_action", "evidence_requested", "decided_too_early", "tool_limit_turn", "tool_limit_run",
+                "time_limit", "repeated_errors", "no_decision")
 
 
 @dataclass
@@ -55,6 +58,11 @@ class Limits:
 
 def load_family(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def family_hash(raw: bytes) -> str:
+    """The family file's fingerprint, saved in each trace as ``case_hash`` and checked by the grader."""
+    return hashlib.sha256(raw).hexdigest()[:12]
 
 
 def find_families(paths: Sequence[str | Path] = (DEFAULT_FAMILIES,)) -> list[Path]:
@@ -93,6 +101,8 @@ def _agent_turn(model: Model, env: CreditRenewalEnv, messages: list, trace: Trac
         return "time_limit"
     if env.consecutive_rejections >= limits.rejected_in_a_row:
         return "repeated_errors"
+    if env.final_requested and env.requested_evidence_in(turn):
+        return "evidence_requested"
     return None
 
 
@@ -177,7 +187,7 @@ def run_family_one(spec: FamilyRunSpec, model_configs: dict[str, dict], settings
     limits = Limits(tool_calls_per_turn=settings.max_tool_calls)
     trace = Trace(
         run_id=spec.run_id, case_id=spec.family_id, case_version=spec.version_id, case_type=spec.version_type,
-        case_file=str(spec.family_path), case_hash=hashlib.sha256(raw).hexdigest()[:12], env="credit_renewal",
+        case_file=str(spec.family_path), case_hash=family_hash(raw), env="credit_renewal",
         family_set=fam["set"], policy_id=fam["policy"]["id"], expected_outcome=gold["acceptable_actions"],
         mode=spec.mode, model={"name": spec.model, **model_configs[spec.model]},
         settings={"limits": vars(limits)}, repeat=spec.repeat,
@@ -186,6 +196,11 @@ def run_family_one(spec: FamilyRunSpec, model_configs: dict[str, dict], settings
         model = make_model(spec.model, model_configs)
         play_family(fam, spec.version_id, spec.mode, model, trace, limits)
         trace.finish("completed")
+    except ToolError:
+        # Our bug, not the model's or the API's: it would fail the same way again, so the runner does
+        # not retry it (a retry would only spend more model calls). The run is an error, never graded.
+        trace.set(error_kind="tool_bug")
+        trace.finish("error", error=traceback.format_exc())
     except Exception:
         trace.finish("error", error=traceback.format_exc())
     return trace

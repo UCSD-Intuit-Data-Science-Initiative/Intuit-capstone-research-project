@@ -184,13 +184,14 @@ def cmd_run_families(args: argparse.Namespace) -> int:
         "checker": args.checker,
     }, indent=2), encoding="utf-8")
     counts = run_experiment(specs, configs, out, settings, run_fn=run_family_one)
-    _, summary = score_experiment(out, args.checker, k=args.k)
+    _, summary = score_experiment(out, _checker(args), k=args.k)
     from .credit.grader import grade_experiment
-    grades = grade_experiment(out)
+    grades, skipped = grade_experiment(out, allow_family_change=args.allow_family_change)
     print()
     print_summary(summary, args.k, DEFAULT_GROUP_BY)
     print(f"\nruns: {out / 'runs.csv'}\nsummary: {out / 'summary.csv'}\ntraces: {out / 'traces'}")
     print(f"labels: {out / 'labels.csv'} ({sum(len(g['labels']) for g in grades)} labels, {len(grades)} runs)")
+    _print_skipped(skipped)
     if args.langfuse:
         _send_to_langfuse([trace_path(out, s) for s in specs if trace_path(out, s).exists()])
     if counts["error"]:
@@ -198,16 +199,38 @@ def cmd_run_families(args: argparse.Namespace) -> int:
     return 1 if counts["error"] else 0
 
 
+CREDIT_CHECKER = "capstone.credit.grader:check"
+ALLOW_HELP = ("grade runs whose family.json changed since they ran, against the current file "
+              "(results are marked family_changed); by default such runs are not graded")
+
+
+def _checker(args: argparse.Namespace) -> str:
+    """The checker to score with; --allow-family-change switches the credit grader to its override."""
+    if getattr(args, "allow_family_change", False) and args.checker == CREDIT_CHECKER:
+        return "capstone.credit.grader:check_allow_family_change"
+    return args.checker
+
+
+def _print_skipped(skipped: list[str]) -> None:
+    for reason in skipped:
+        print(f"SKIP  {reason}")
+    if skipped:
+        print(f"{len(skipped)} runs not graded: their family file changed since the run "
+              f"(regrade with --allow-family-change to use the current file; results are marked family_changed)")
+
+
 def cmd_grade(args: argparse.Namespace) -> int:
     from .credit.grader import grade_experiment
-    grades = grade_experiment(args.out)
+    grades, skipped = grade_experiment(args.out, allow_family_change=args.allow_family_change)
     for g in grades:
         bad = sorted({l["label"] for l in g["labels"] if l["severity"] > 0})
+        changed = "  [family changed]" if g["family_changed"] else ""
         print(f"{'PASS' if g['passed'] else 'FAIL'}  {g['run_id']}  decision={g['decision']}  "
               f"invalid attempted/accepted={g['attempted_invalid_changes']}/{g['accepted_invalid_changes']}  "
-              f"{', '.join(bad) or '-'}")
+              f"{', '.join(bad) or '-'}{changed}")
     print(f"labels: {Path(args.out) / 'labels.csv'}")
-    return 0
+    _print_skipped(skipped)
+    return 1 if skipped else 0
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -224,7 +247,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 def cmd_score(args: argparse.Namespace) -> int:
     group_by = tuple(args.group_by.split(","))
-    rows, summary = score_experiment(args.out, args.checker, group_by, args.k)
+    rows, summary = score_experiment(args.out, _checker(args), group_by, args.k)
     k = args.k or max((r["repeat"] + 1 for r in rows), default=1)
     print_summary(summary, k, group_by)
     return 0
@@ -322,10 +345,11 @@ def main(argv: list[str] | None = None) -> int:
     rf.add_argument("--retries", type=int, default=2)
     rf.add_argument("--max-tool-calls", type=int, default=DEFAULT_MAX_TOOL_CALLS, help="per agent turn")
     rf.add_argument("--models-config", default=DEFAULT_MODELS_CONFIG)
-    rf.add_argument("--checker", default="capstone.credit.grader:check")
+    rf.add_argument("--checker", default=CREDIT_CHECKER)
     rf.add_argument("--dry-run", action="store_true")
     rf.add_argument("--estimate", action="store_true", help="print a rough token and cost estimate, run nothing")
     rf.add_argument("--langfuse", action="store_true", help="also copy the finished traces to Langfuse")
+    rf.add_argument("--allow-family-change", action="store_true", help=ALLOW_HELP)
     rf.set_defaults(func=cmd_run_families)
 
     rp = sub.add_parser("report", help="results page (Markdown) from a credit experiment folder")
@@ -336,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
 
     g = sub.add_parser("grade", help="label saved credit runs (labels/<run>.json and labels.csv)")
     g.add_argument("out")
+    g.add_argument("--allow-family-change", action="store_true", help=ALLOW_HELP)
     g.set_defaults(func=cmd_grade)
 
     lf = sub.add_parser("langfuse", help="copy saved traces to Langfuse for browsing")
@@ -345,6 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("score", help="regrade saved traces and rewrite runs.csv / summary.csv")
     s.add_argument("out")
     s.add_argument("--checker", default=DEFAULT_CHECKER)
+    s.add_argument("--allow-family-change", action="store_true", help=ALLOW_HELP + " (credit grader only)")
     s.add_argument("--k", type=int)
     s.add_argument("--group-by", default=",".join(DEFAULT_GROUP_BY))
     s.set_defaults(func=cmd_score)
