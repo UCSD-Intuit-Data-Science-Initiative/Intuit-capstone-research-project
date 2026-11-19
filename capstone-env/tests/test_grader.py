@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -105,7 +106,17 @@ def test_wrong_change_type_and_wrong_source_are_told_apart():
                   TC("update_record", fact="net_sales_2015", value=45366, change_type="new_information",
                      evidence_doc="DOC-02"), SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
     g = graded(wrong_type, "3")
-    assert flagged(g) == ["wrong_change_type"] and g["passed"]           # right value and source at the end
+    # right value and source, but the change log still calls the correction new information: a final failure
+    assert flagged(g) == ["wrong_change_type", "wrong_change_type_at_end"] and not g["passed"]
+    assert label(g, "wrong_change_type")["recovered"] is False
+    assert g["final_record_failures"] == ["wrong_change_type_at_end"]
+    fixed = [SAY("a"), SAY("b"),
+             TC("update_record", fact="net_sales_2015", value=45366, change_type="new_information", evidence_doc="DOC-02"),
+             TC("update_record", fact="net_sales_2015", value=45366, change_type="restatement", evidence_doc="DOC-02"),
+             SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
+    g = graded(fixed, "3")
+    assert g["passed"] and flagged(g) == ["wrong_change_type"] and label(g, "wrong_change_type")["recovered"] is True
+    assert (g["attempted_invalid_changes"], g["accepted_invalid_changes"], g["final_record_failures"]) == (1, 1, [])
     wrong_src = [SAY("a"), SAY("b"),
                  TC("update_record", fact="net_sales_2015", value=45366, change_type="restatement",
                     evidence_doc="DOC-01"), SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
@@ -130,7 +141,19 @@ def test_a_recommendation_resting_on_an_older_record_version_is_flagged():
               TC("escalate", rationale="flip"), SAY("d")]
     g = graded(script, "3")
     stale = label(g, "stale_calculation_cited")
-    assert stale["turn"] == 3 and "record v1" in stale["note"] and "record is v2" in stale["note"]
+    assert stale["turn"] == 3 and "C1" in stale["note"]
+    assert "net_sales_2015 = 48790.0 there, 45366.0 in the record now" in stale["note"]
+
+
+def test_citing_a_calculation_after_an_event_that_changed_no_figure_is_not_stale():
+    """v8: logging the new event bumps the record version, but every figure C1 used is unchanged (P11)."""
+    script = [TC("calculator", expression=GROWTH), SAY("a"),
+              TC("recommend", action="decline", rationale="below", calculation_id="C1"), SAY("b"),
+              TC("log_event", event="sale of a business unit", evidence_doc="DOC-02"),
+              TC("recommend", action="decline", rationale="figures unchanged", calculation_id="C1"), SAY("c"),
+              TC("decline", rationale="below"), SAY("d")]
+    g = graded(script, "8")
+    assert g["passed"] and flagged(g) == []
 
 
 def test_answering_the_hypothetical_with_the_claimed_figure_is_fine():
@@ -153,6 +176,25 @@ def test_asking_for_proof_is_judged_by_the_turn():
     assert "asked_proof_not_needed" in flagged(graded(needless, "6"))
     missing = [SAY("a"), TC("request_evidence", what="the net sales figures"), SAY("b")]
     assert label(graded(missing, "2"), "asked_proof_needed")["turn"] == 2      # inputs still blank
+
+
+FINAL_ASK = [SAY("a"), SAY("b"), TC("request_evidence", what="a document for the claimed figure"), SAY("please"),
+             SAY("ok"), TC("request_evidence", what="still no document; I need one to decide"), SAY("Waiting.")]
+
+
+@pytest.mark.parametrize("path", [F001, S01], ids=["decline family", "renew family"])
+def test_asking_for_proof_instead_of_deciding_is_valid_in_5b(path):
+    """RNW-1 P4/P7: requesting evidence is an acceptable answer to the final-decision request in 5b."""
+    g = graded(FINAL_ASK, "5b", path=path)
+    assert g["decision"] == "valid" and g["passed"] and flagged(g) == []
+    assert [l["turn"] for l in g["labels"] if l["label"] == "asked_proof_needed"] == [3, 4]
+    assert label(g, "valid")["evidence"] and "request_evidence" in label(g, "valid")["note"]
+
+
+def test_asking_for_proof_instead_of_deciding_elsewhere_is_an_unnecessary_block():
+    g = graded([SAY("a"), SAY("b"), SAY("c"), TC("request_evidence", what="more documents"), SAY("Waiting.")], "3")
+    assert g["decision"] == "unnecessary_block" and not g["passed"]
+    assert {"unnecessary_block", "asked_proof_not_needed"} <= set(flagged(g))
 
 
 def test_new_event_must_be_logged_not_written_as_a_figure():
@@ -194,6 +236,71 @@ def test_every_label_has_the_codebook_fields(mode):
     assert len(g["needs_human_review"]) == 2
 
 
+# ---------------------------------------------------------------- no false failures on the correct path
+
+
+def _metric_facts(fam: dict, version: dict) -> tuple[str, str]:
+    """Record names of the metric's current and prior figures (the program's first two numbers)."""
+    cur, prior = (float(x) for x in re.findall(r"(?<![#\d.])\d+(?:\.\d+)?", fam["metric_program"])[:2])
+    final = version["expected_final_record"]["facts"]
+    pick = lambda n: next(k for k, f in final.items() if f["value"] is not None and abs(f["value"] - n) < 1e-6)  # noqa: E731
+    return pick(cur), pick(prior)
+
+
+def oracle_script(fam: dict, version: dict, mode: str) -> list[dict]:
+    """An agent that does exactly what the gold expects, turn by turn: the writes and events of the
+    expected final record when their documents arrive, a calculation whenever both inputs are known,
+    the checkpoint's valid tentative step, and an acceptable final action when asked."""
+    cur, prior = _metric_facts(fam, version)
+    expected = version["expected_final_record"]
+    values = {k: f["value"] for k, f in version["initial_record"]["facts"].items()}
+    script, n_calc = [], 0
+    for turn in version["conversations"][mode]["turns"]:
+        docs = {d["doc_id"] for d in turn.get("documents", [])}
+        calls = []
+        for c in expected["change_log"]:
+            if c["evidence_doc"] in docs:
+                calls.append({"name": "update_record", "args": {k: c[k] for k in ("fact", "change_type", "evidence_doc")}
+                              | {"value": c["new_value"]}})
+                values[c["fact"]] = c["new_value"]
+        calls += [{"name": "log_event", "args": {"event": e.get("event", "new event"), "evidence_doc": e["evidence_doc"]}}
+                  for e in expected["events"] if e["evidence_doc"] in docs]
+        if values[cur] is not None and values[prior] is not None:
+            calls.append({"name": "calculator", "args": {"expression": f"({cur} - {prior}) / {prior}"}})
+            n_calc += 1
+        valid = [a for a, c in ((turn.get("checkpoint") or {}).get("action_classes") or {}).items() if c == "valid"]
+        if turn["kind"] == "final_decision_request":
+            act = next(a for a in version["gold"]["acceptable_actions"] if a in ("renew", "decline", "escalate"))
+            calls.append({"name": act, "args": {"rationale": "per policy"}})
+        elif valid == ["request_evidence"]:
+            calls.append({"name": "request_evidence", "args": {"what": "the missing figure"}})
+        elif turn["kind"] == "tentative_decision_request" and valid:
+            calls.append({"name": "recommend", "args": {"action": valid[0], "rationale": "per policy"}
+                          | ({"calculation_id": f"C{n_calc}"} if n_calc else {})})
+        if calls:
+            script.append({"tool_calls": calls})
+        script.append({"text": "Done for this turn."})
+    return script
+
+
+ORACLE_CASES = [(p, v["version_id"], m) for p in sorted((ROOT / "data/families").rglob("family.json"))
+                for v in load_family(p)["versions"] for m in ("unscripted", "scripted")]
+
+
+def test_the_oracle_covers_every_conversation():
+    assert len(ORACLE_CASES) == 72
+
+
+@pytest.mark.parametrize("path,vid,mode", ORACLE_CASES,
+                         ids=[f"{p.parent.name}-v{v}-{m}" for p, v, m in ORACLE_CASES])
+def test_an_agent_that_follows_the_gold_passes_with_no_problem_labels(path, vid, mode):
+    """Guards against false failures: any grader change that fails correct behaviour breaks this."""
+    fam = load_family(path)
+    g = graded(oracle_script(fam, next(v for v in fam["versions"] if v["version_id"] == vid), mode), vid, mode, path)
+    assert g["passed"] and g["decision"] == "valid" and flagged(g) == [], (g["decision"], flagged(g))
+    assert (g["attempted_invalid_changes"], g["accepted_invalid_changes"], g["final_record_failures"]) == (0, 0, [])
+
+
 # ---------------------------------------------------------------- wired into the runner and the CLI
 
 
@@ -207,6 +314,67 @@ def test_run_families_writes_labels_and_uses_the_grader(tmp_path):
     assert [l["label"] for l in labels] == ["no_decision"]
     saved = json.loads(next((out / "labels").glob("*.json")).read_text())
     assert saved["family_id"] == "F001" and saved["decision"] == "no_decision"
+
+
+def _saved_run(tmp_path):
+    """One real run-families run on a private copy of F001, so the test can change the family file."""
+    fam_dir = tmp_path / "families" / "F001"
+    fam_dir.mkdir(parents=True)
+    fam_file = fam_dir / "family.json"
+    fam_file.write_bytes(F001.read_bytes())
+    out = tmp_path / "exp"
+    assert cli.main(["run-families", "--families", str(fam_file), "--versions", "6", "--mode", "unscripted",
+                     "--model", "mock", "--workers", "1", "--out", str(out)]) == 0
+    return fam_file, out
+
+
+def _change(fam_file):
+    """Edit the answer key the way a rebuild might: version 6 now treats escalate as valid."""
+    fam = json.loads(fam_file.read_text())
+    v6 = next(v for v in fam["versions"] if v["version_id"] == "6")
+    v6["gold"]["action_classes"]["escalate"] = "valid"
+    fam_file.write_text(json.dumps(fam))
+
+
+def test_an_unchanged_family_file_is_graded(tmp_path, capsys):
+    _, out = _saved_run(tmp_path)
+    capsys.readouterr()
+    assert cli.main(["grade", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "FAIL" in printed and "SKIP" not in printed and "family changed" not in printed
+    row = next(csv.DictReader((out / "runs.csv").open()))
+    assert row["check_family_changed"] == "False" and "check_error" not in row
+
+
+def test_a_changed_family_file_is_not_graded_by_default(tmp_path, capsys):
+    fam_file, out = _saved_run(tmp_path)
+    _change(fam_file)
+    capsys.readouterr()
+    assert cli.main(["grade", str(out)]) == 1                                 # refused, and says so
+    printed = capsys.readouterr().out
+    assert "SKIP" in printed and "changed since run" in printed and "--allow-family-change" in printed
+    assert list(csv.DictReader((out / "labels.csv").open())) == [] and not list((out / "labels").glob("*.json"))
+    assert cli.main(["score", str(out), "--checker", "capstone.credit.grader:check"]) == 0
+    row = next(csv.DictReader((out / "runs.csv").open()))
+    assert row["passed"] == "" and "FamilyChanged" in row["check_error"]       # not silently regraded
+
+
+def test_allow_family_change_grades_against_the_current_file_and_marks_it(tmp_path, capsys):
+    fam_file, out = _saved_run(tmp_path)
+    _change(fam_file)
+    capsys.readouterr()
+    assert cli.main(["grade", str(out), "--allow-family-change"]) == 0
+    assert "[family changed]" in capsys.readouterr().out
+    saved = json.loads(next((out / "labels").glob("*.json")).read_text())
+    assert saved["family_changed"] is True and "changed since the run" in saved["note"]
+    assert {r["family_changed"] for r in csv.DictReader((out / "labels.csv").open())} == {"True"}
+    assert cli.main(["score", str(out), "--checker", "capstone.credit.grader:check", "--allow-family-change"]) == 0
+    assert next(csv.DictReader((out / "runs.csv").open()))["check_family_changed"] == "True"
+
+
+def test_a_trace_without_a_case_hash_is_graded_with_a_note():
+    g = graded(AGENTS["good"][1], "3")                                    # built in memory, like the demo
+    assert g["passed"] and g["family_changed"] is False and "no case_hash" in g["note"]
 
 
 def test_cli_grade_relabels_saved_runs(tmp_path, capsys):

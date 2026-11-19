@@ -74,8 +74,8 @@ It is already on `PYTHONPATH`; import with `from sandbox.sandbox_00 import ...`.
 
 Ported from Ivan's `setup/script-player-agent-loop` branch (PR 1 of the plan in
 `docs/architecture_plan.md`). It plays each case through the agent, records everything, and hands
-the record to the checker. It still runs the stand-in `toy_invoice` world; PR 2 connects it to the
-credit-renewal families in `data/families/`.
+the record to the checker. `run` plays the stand-in `toy_invoice` case; `run-families` (PR 2) plays the
+credit-renewal families in `data/families/` and grades them with the grader (PR 3), described below.
 
 ```
 case file ─► script player ─► agent (LLM + tools) ─► environment
@@ -93,9 +93,9 @@ case file ─► script player ─► agent (LLM + tools) ─► environment
 | `src/capstone/models.py` | `model.chat(system, messages, tools) → Reply`; adapters for Anthropic, OpenAI, OpenRouter, plus a no-key `mock` |
 | `src/capstone/trace.py` | Trace format and saving (one JSON per run): the official record the grader reads |
 | `src/capstone/runner.py` | Repeat runner, results tables, pass^k |
-| `src/capstone/cli.py` | `run`, `score`, `show`, `chat`, `langfuse` |
+| `src/capstone/cli.py` | `run`, `run-families`, `score`, `grade`, `show`, `chat`, `langfuse` |
 | `src/capstone/env.py` | Environment interface + `toy_invoice`, a stand-in world |
-| `src/capstone/checker.py` | Placeholder `check(trace)` until the grader lands (PR 3) |
+| `src/capstone/checker.py` | Placeholder `check(trace)` for the `toy_invoice` case; credit runs use `credit/grader.py` |
 | `src/capstone/observe.py` | Optional copy of finished traces to Langfuse |
 
 Naming: the harness's `scripted` / `baseline` modes (turns one at a time vs all facts at once) are
@@ -109,13 +109,18 @@ remain.
 the speaker, text and documents of each turn (`view.py`); it works on a versioned record
 (`record.py`) through ten tools (`env.py`: read_document, read_record, update_record, log_event,
 calculator, recommend, request_evidence, renew, decline, escalate). The environment checks only
-mechanics (the fact exists, the document was given, the decision is pending); policy is graded
-afterwards. The player (`player.py`) stops on a final action, a final action before it was asked
-for, tool or time limits, three rejected calls in a row, or the end of the script.
+mechanics (the fact exists, the document was given, the decision is pending, the arguments fit the
+tool's schema); policy is graded afterwards. The player (`player.py`) stops on a final action, a
+request for evidence in reply to the final-decision request, a final action before it was asked for,
+tool or time limits, three rejected calls in a row, or the end of the script. A bug inside a tool ends
+the run as an error (not graded, not retried).
 
 The grader (`grader.py`, PR 3) labels each run from its whole trace, in five groups (decision,
 record, math, evidence, process), with a turn, a severity 0-4, whether a change went through and
-whether it was fixed later. It writes `labels/<run>.json` and `labels.csv` next to the traces.
+whether it was fixed later. It writes `labels/<run>.json` and `labels.csv` next to the traces. It
+grades a run only against the `family.json` it was played with (checked by `case_hash`); after a
+`make family` rebuild, old runs are skipped unless you pass `--allow-family-change` (results are then
+marked `family_changed`).
 
 ```bash
 make demo                                                     # 4 scripted mock agents, table + traces

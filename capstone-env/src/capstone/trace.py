@@ -95,6 +95,8 @@ def summarize(trace: dict) -> dict:
 
     if decisions:
         final_action = decisions[-1]["decision"]
+    elif trace.get("env") == "credit_renewal":
+        final_action = "none"  # no final action taken; stop_reason says why (e.g. no_decision)
     elif agent:
         final_action = "ask"  # ended with a reply to the customer, no decision taken
     else:
