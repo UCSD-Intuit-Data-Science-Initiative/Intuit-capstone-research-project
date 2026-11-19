@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import yaml
@@ -100,3 +101,29 @@ def test_make_targets_for_the_first_run_exist():
     assert "poc-estimate:" in text and "poc:" in text and "--model claude" in text
     assert "data/families/smoke/S01 data/families/pilot/F001" in text
     assert len(find_families([ROOT / "data/families/smoke/S01", ROOT / "data/families/pilot/F001"])) == 2
+
+
+def test_seconds_per_turn_reaches_the_trace(tmp_path):
+    out = tmp_path / "slow"
+    assert cli.main(["run-families", "--families", str(F001), "--versions", "3", "--mode", "unscripted",
+                     "--model", "mock", "--workers", "1", "--seconds-per-turn", "900", "--out", str(out)]) == 0
+    trace = json.loads(next((out / "traces").rglob("*.json")).read_text())
+    assert trace["settings"]["limits"]["seconds_per_turn"] == 900
+    default = tmp_path / "default"
+    assert cli.main(["run-families", "--families", str(F001), "--versions", "3", "--mode", "unscripted",
+                     "--model", "mock", "--workers", "1", "--out", str(default)]) == 0
+    assert json.loads(next((default / "traces").rglob("*.json")).read_text())["settings"]["limits"]["seconds_per_turn"] == 120
+
+
+def test_progress_lines_show_start_time_and_time_left(tmp_path):
+    from capstone.runner import Settings, _duration, run_experiment
+    from capstone.credit.player import run_family_one
+    assert (_duration(5), _duration(125), _duration(3725)) == ("0m05s", "2m05s", "1h02m")
+    specs = plan_family_runs([F001], ["3", "6"], ["unscripted"], ["mock"], 1)
+    log: list[str] = []
+    run_experiment(specs, CONFIGS, tmp_path / "exp", Settings(workers=1), log=log.append, run_fn=run_family_one)
+    assert sum(l.startswith("  started ") for l in log) == 2
+    done = [l for l in log if l.startswith("[")]
+    assert "left)" in done[0] and "elapsed" in done[1] and "left" not in done[1]
+    trace = json.loads(next((tmp_path / "exp" / "traces").rglob("*.json")).read_text())
+    assert "_wall_s" not in trace

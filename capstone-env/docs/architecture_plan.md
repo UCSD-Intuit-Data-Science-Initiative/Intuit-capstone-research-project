@@ -45,7 +45,7 @@ several agents with review.
 | 1 Harness core | `stage6/harness-core` | merged (#5, Nov 15) | Ivan's harness ported onto `main` (models: mock, Anthropic, OpenAI, OpenRouter; agent loop; trace; runner; CLI; his 21 tests). Optional Langfuse copy (`observe.py`, `--langfuse`, `cli langfuse`). This plan and the Nov 4 / Nov 12 feedback in CLAUDE.md |
 | 2 Credit environment + player | `stage6/credit-env` | merged (#6, Nov 15) | Agent view, versioned record, credit tools, family player, stop rules (details below) |
 | 3 Grader v0 | `stage6/grader` | merged (#7, Nov 15) | Labels from the whole trace; known-behaviour test agents |
-| 4 First real run | `stage6/first-run` | built, not run yet (needs `ANTHROPIC_API_KEY`) | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page. Needs an API key |
+| 4 First real run | `stage6/first-run` | set-up proven with a local model (Nov 19); Claude run needs `ANTHROPIC_API_KEY` | One real model, S01 + F001, 9 versions × 2 modes = 36 runs; results page |
 | 5 Gates | — | later | Guarded mode; open vs guarded on the same families |
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
 | 7 Policy swap | — | when RNW-1-v2 is final | Specs point to RNW-1-v2; document dates; rule ids; record fields |
@@ -155,6 +155,16 @@ Langfuse); it writes `results/poc1/` and the page `docs/results/poc_run_1.md` (`
 Cost lever not used yet: prompt caching (the system prompt, tools and early turns repeat every call)
 would cut input cost a lot, but the adapter's cost accounting would need cache prices first.
 
+**Local model check (Nov 19).** Before paying for the Claude run, the same 36 runs were played with a free
+local model: Qwen 3.5 9B served by Ollama with a 16k context (Mistral 7B could not call tools). All 36
+completed with no harness errors; the record, the versioned calculations and the stop rules behaved as
+designed. Fixes it led to: an assistant message with only tool calls is sent with empty content, not null
+(Ollama rejects null); each run logs a start line and its duration, elapsed time and time left;
+`--seconds-per-turn` raises the 120 s turn limit for slow local models. To repeat it, put a model entry with
+`provider: openai`, `base_url: http://host.docker.internal:11434/v1` and zero prices in a git-ignored
+models file and pass `--models-config <file> --seconds-per-turn 900`. Its results are a harness check, not
+a finding about Claude.
+
 ## PR 7 notes: switching to RNW-1-v2
 
 From Sophia's draft (`policy/rnw-1-v2`, 58 rules): the decision logic matches today's gold. Needed:
@@ -174,7 +184,7 @@ gold rule tags move from P-ids to the new ids (E3, F1, O1-O5…); correction doc
 
 ```bash
 git fetch && git checkout main && git pull      # PRs 1-3 are merged
-cd capstone-env && make build && make test      # 557 tests after the pre-PR 4 fixes (461 at the end of PR 3)
+cd capstone-env && make build && make test      # 567 tests with PR 4 (557 after the pre-PR 4 fixes)
 make demo                                        # 4 scripted mock agents through F001, no keys
 make poc-estimate                                # cost of the first real run; make poc runs it
 make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model

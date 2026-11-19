@@ -176,7 +176,8 @@ def cmd_run_families(args: argparse.Namespace) -> int:
         return 0
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    settings = Settings(max_tool_calls=args.max_tool_calls, workers=args.workers, retries=args.retries)
+    settings = Settings(max_tool_calls=args.max_tool_calls, workers=args.workers, retries=args.retries,
+                        seconds_per_turn=args.seconds_per_turn)
     (out / "experiment.json").write_text(json.dumps({
         "command": sys.argv, "started_at": datetime.now().isoformat(timespec="seconds"),
         "families": [str(p) for p in paths], "versions": args.versions, "modes": modes,
@@ -347,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
     rf.add_argument("--models-config", default=DEFAULT_MODELS_CONFIG)
     rf.add_argument("--checker", default=CREDIT_CHECKER)
     rf.add_argument("--dry-run", action="store_true")
+    rf.add_argument("--seconds-per-turn", type=float,
+                    help="wall-clock limit per agent turn (default 120); raise it for slow local models")
     rf.add_argument("--estimate", action="store_true", help="print a rough token and cost estimate, run nothing")
     rf.add_argument("--langfuse", action="store_true", help="also copy the finished traces to Langfuse")
     rf.add_argument("--allow-family-change", action="store_true", help=ALLOW_HELP)

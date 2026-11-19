@@ -258,6 +258,9 @@ def test_openai_messages_and_tool_argument_parsing():
     out = to_openai_messages("rules", NEUTRAL)
     assert [m["role"] for m in out] == ["system", "user", "assistant", "tool", "user"]
     assert json.loads(out[2]["tool_calls"][0]["function"]["arguments"]) == {"invoice_id": "INV-1001"}
+    # a reply that is only tool calls is sent with "" content, never null (Ollama refuses null)
+    only_calls = to_openai_messages("", [{**NEUTRAL[1], "content": ""}])
+    assert only_calls[0]["content"] == "" and only_calls[0]["tool_calls"]
     assert parse_tool_args('{"a": 1}') == ({"a": 1}, None)
     assert parse_tool_args('{"a": ') == ({}, '{"a": ')
     assert parse_tool_args("[1]") == ({}, "[1]")

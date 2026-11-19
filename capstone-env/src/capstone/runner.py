@@ -36,6 +36,7 @@ class Settings:
     workers: int = 4
     retries: int = 2  # extra attempts for a run that errors (API outage, etc.)
     retry_wait_s: float = 10.0
+    seconds_per_turn: float | None = None  # credit runs: wall-clock limit per agent turn (None: the player's 120 s)
 
 
 @dataclass(eq=False)
@@ -96,6 +97,11 @@ def run_one(spec: RunSpec, model_configs: dict[str, dict], settings: Settings) -
     return trace
 
 
+def _duration(seconds: float) -> str:
+    s = int(round(seconds))
+    return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m{s % 60:02d}s"
+
+
 def run_experiment(specs: list, model_configs: dict[str, dict], out_dir: str | Path,
                    settings: Settings, log: Callable[[str], None] = print,
                    run_fn: Callable[..., Trace] | None = None) -> Counter:
@@ -106,6 +112,8 @@ def run_experiment(specs: list, model_configs: dict[str, dict], out_dir: str | P
     log(f"{len(specs)} runs planned, {len(specs) - len(todo)} already saved, {len(todo)} to run")
 
     def attempt(spec: RunSpec) -> tuple[RunSpec, Trace]:
+        log(f"  started {spec.run_id}")
+        started = time.perf_counter()
         for n in range(settings.retries + 1):
             if n:
                 time.sleep(settings.retry_wait_s * n)
@@ -115,9 +123,11 @@ def run_experiment(specs: list, model_configs: dict[str, dict], out_dir: str | P
             if trace.data["status"] == "completed" or trace.data.get("error_kind") == "tool_bug":
                 break
         trace.save(trace_path(out_dir, spec))
+        trace.data["_wall_s"] = time.perf_counter() - started   # for the progress line only; not saved
         return spec, trace
 
     counts: Counter = Counter()
+    begin = time.perf_counter()
     with ThreadPoolExecutor(max_workers=settings.workers) as pool:
         futures = [pool.submit(attempt, s) for s in todo]
         for done, fut in enumerate(as_completed(futures), 1):
@@ -126,7 +136,11 @@ def run_experiment(specs: list, model_configs: dict[str, dict], out_dir: str | P
             counts[status] += 1
             s = trace.data["summary"]
             detail = f"final={s['final_action']}" if status == "completed" else trace.data["error"].strip().splitlines()[-1]
-            log(f"[{done}/{len(todo)}] {status:9} {spec.run_id}  {detail}")
+            elapsed = time.perf_counter() - begin
+            left = elapsed / done * (len(todo) - done)   # wall clock, so parallel workers are counted
+            eta = f", ~{_duration(left)} left" if done < len(todo) else ""
+            log(f"[{done}/{len(todo)}] {status:9} {spec.run_id}  {detail}  "
+                f"({_duration(trace.data.pop('_wall_s', 0.0))}; elapsed {_duration(elapsed)}{eta})")
     return counts
 
 
