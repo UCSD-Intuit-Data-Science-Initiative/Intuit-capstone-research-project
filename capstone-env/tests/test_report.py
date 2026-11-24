@@ -176,6 +176,7 @@ def test_report_shows_run_uid_primary_problem_and_what_occurs_together(tmp_path)
         _lab("A", "r-1", "no_decision", 1, "secondary", "asked_question", "r-1-eeeeee"),
         _lab("A", "r-2", "event_wrongly_logged", 1, "primary", "past_fact_logged_as_event", "r-2-bbbbbb"),
         _lab("C", "r-4", "no_decision", 1, "primary", "asked_question", "r-4-cccccc"),
+        _lab("C", "r-4", "no_decision", 1, "secondary", "other", "r-4-ffffff"),
     ]
     page = render_report(_write(tmp_path / "exp", runs, labels))
     assert "- Runs: 4 (4 completed, 0 errored)" in page
@@ -194,11 +195,11 @@ def test_report_shows_run_uid_primary_problem_and_what_occurs_together(tmp_path)
     assert "| event_wrongly_logged | missed_update | 1 |" in together
     assert "| event_wrongly_logged | no_decision | 1 |" in together
     assert "| event_wrongly_logged | (nothing else) | 1 |" in together
-    assert "| no_decision | (nothing else) | 1 |" in together
+    assert "| no_decision | no_decision (same label again) | 1 |" in together
     # problem labels with the detail split; two plays of run "A" count as two runs
     labels_table = page.split("## Problem labels")[1].split("## Primary problem per run")[0]
     assert "| event_wrongly_logged | record | 2 | 1 | correction_logged_as_event 1; past_fact_logged_as_event 1 |" in labels_table
-    assert "| no_decision | record | 2 | 1 | asked_question 2 |" in labels_table
+    assert "| no_decision | record | 2 | 1 | asked_question 2; other 1 |" in labels_table
     assert "| missed_update | record | 1 | 2 | - |" in labels_table
 
 

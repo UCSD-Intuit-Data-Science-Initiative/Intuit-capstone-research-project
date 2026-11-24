@@ -208,7 +208,8 @@ def render_report(out_dir: str | Path, title: str | None = None) -> str:
                 for s in set(roles["secondary"]) or {None}:
                     pairs[(p, s)] += 1
         for (p, s), n in sorted(pairs.items(), key=lambda kv: (-totals[kv[0][0]], kv[0][0], kv[0][1] is None, -kv[1], kv[0][1] or "")):
-            L.append(f"| {p} | {s or '(nothing else)'} | {n} |")
+            came = "(nothing else)" if s is None else f"{s} (same label again)" if s == p else s
+            L.append(f"| {p} | {came} | {n} |")
 
     L += ["", "## Runs", "", "| Run uid | Run | Passed | Decision | Primary problem | Problem labels | Tokens in/out | Cost |",
           "|---|---|---|---|---|---|---:|---:|"]
