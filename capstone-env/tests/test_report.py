@@ -209,7 +209,7 @@ def test_report_builds_for_an_experiment_graded_before_the_new_fields(tmp_path):
     page = render_report(_write(tmp_path / "old", runs, labels))
     assert "| `-` | `A` | False | no_decision | - | no_decision |" in page
     assert "| event_wrongly_logged | record | 1 | 1 | - |" in page          # no detail column: shown as absent
-    assert page.count("Not available") == 2 and "## Primary problem per run" in page
+    assert page.count("Not available") == 3 and "## Decision state by turn" in page and "## Primary problem per run" in page
     # an experiment with run_uid in runs.csv but old labels (no roles) also builds
     new_runs = [_run("A", "r-1", False, check_labels="no_decision")]
     assert "| `r-1` | `A` |" in render_report(_write(tmp_path / "half", new_runs, labels))
@@ -235,3 +235,52 @@ def test_a_real_experiment_report_has_the_new_tables(tmp_path):
     assert "| missed_update | no_decision | 2 |" in page and "| no_decision | (nothing else) | 2 |" in page
     uids = [r["run_uid"] for r in csv.DictReader((out / "runs.csv").open())]
     assert len(set(uids)) == 4 and all(f"`{u}`" in page for u in uids)
+
+
+# ---------------------------------------------------------------- decision state by turn
+
+SAYS = {"text": "ok"}
+
+
+def _state_experiment(tmp_path):
+    """Three v3 runs through the real grader: follows the pin, keeps the old pin, never states a lean."""
+    from test_turn_state import FOLLOWS, keeps_old_pin
+    from capstone.credit.grader import grade_experiment
+    from capstone.credit.player import family_hash
+    from capstone.runner import score_experiment
+    out = tmp_path / "state"
+    (out / "traces").mkdir(parents=True)
+    fam = load_family(F001)
+    for name, script in (("follows", FOLLOWS), ("keeps", keeps_old_pin()), ("silent", [SAYS, SAYS, SAYS, SAYS])):
+        t = Trace(run_id=f"F001__3__unscripted__{name}__r0", case_id="F001", case_version="3",
+                  case_type="correction_after_tentative_decision", case_file=str(F001), mode="unscripted",
+                  model={"name": name}, repeat=0, case_hash=family_hash(F001.read_bytes()))
+        play_family(fam, "3", "unscripted", MockModel(script=list(script)), t)
+        t.finish("completed")
+        (out / "traces" / f"{t.data['run_id']}.json").write_text(json.dumps(t.data))
+    score_experiment(out, "capstone.credit.grader:check")
+    grade_experiment(out)
+    return out
+
+
+def test_the_report_has_decision_state_by_turn(tmp_path):
+    page = render_report(_state_experiment(tmp_path))
+    section = page.split("## Decision state by turn")[1].split("## Runs")[0]
+    assert "| Version type | Turn kind | Run-turns | Stated | Correct | Wrong | stale |" in section
+    # the correction turn: 3 runs, 2 stated (follows right, keeps wrong = stale), the pin moved, 1 moved with it
+    assert "| correction_after_tentative_decision | correction | 3 | 2 | 1 | 1 | 1 | 0 | 0 | 1 | 3 | 1 |" in section
+    # tentative request: follows and keeps are right, silent states nothing
+    assert "| correction_after_tentative_decision | tentative_decision_request | 3 | 2 | 2 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |" in section
+    runs = page.split("## Runs")[1]
+    assert "First wrong lean (turn)" in runs
+    assert "| 3 | " in next(l for l in runs.splitlines() if "keeps" in l)
+
+
+def test_the_report_of_an_experiment_without_turn_states_says_not_available(tmp_path):
+    out = _state_experiment(tmp_path)
+    for f in (out / "labels").glob("*.json"):
+        g = json.loads(f.read_text())
+        g.pop("turn_states")
+        f.write_text(json.dumps(g))
+    page = render_report(out)
+    assert "## Decision state by turn" in page and "Not available: no run in this experiment has per-turn states" in page

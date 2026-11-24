@@ -99,6 +99,59 @@ def _run_key(row: dict) -> str:
     return row.get("run_uid") or row["run_id"]
 
 
+def _state_section(out_dir: Path, done: list[dict]) -> list[str]:
+    """"Decision state by turn": per version type and turn kind, from the grade files (``labels/*.json``)."""
+    keys = {_run_key(r) for r in done}
+    grades = []
+    for path in sorted((out_dir / "labels").glob("*.json")) if (out_dir / "labels").is_dir() else []:
+        try:
+            g = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if g.get("turn_states") and (g.get("run_uid") or g.get("run_id")) in keys:
+            grades.append(g)
+    L = ["", "## Decision state by turn", "",
+         "What the agent did on each turn (tool calls only, never its text) against the expected state: the lean "
+         "it stated (a final action, else its last recommend, else request_evidence = waiting_for_evidence), "
+         "whether it was the expected lean, and on turns where the expected lean moved (the pin), whether the "
+         "agent moved with it on that turn. Wrong = a stated lean that differs; stale = it kept the lean from "
+         "before the pin moved; decision only = a wrong final action, graded as the decision (no lean_wrong label). "
+         "Not stated = no lean on that turn (often fine: only tentative requests ask for one).", ""]
+    if not grades:
+        return L + ["Not available: no run in this experiment has per-turn states (graded before they existed, "
+                    f"or the family files have no expected_state); regrade with `python -m capstone.cli grade {out_dir}`."]
+    cells: dict[tuple, Counter] = defaultdict(Counter)
+    order: dict[tuple, tuple] = {}
+    for g in grades:
+        wrong_detail = {l["turn"]: l.get("detail") for l in g["labels"] if l["label"] == "lean_wrong"}
+        vkey = (int(str(g["version"]).rstrip("ab") or 0), str(g["version"]), g["version_type"])
+        for s_ in g["turn_states"]:
+            c = cells[(vkey[2], s_["kind"])]
+            order.setdefault((vkey[2], s_["kind"]), (vkey, len(order)))
+            c["turns"] += 1
+            if s_["observed_lean"] is None:
+                c["not_stated"] += 1
+                if s_["pin_moved"]:
+                    c["moves"] += 1
+                continue
+            c["stated"] += 1
+            c["correct"] += s_["lean_ok"] is True
+            if s_["lean_ok"] is False:
+                c["wrong"] += 1
+                d = wrong_detail.get(s_["turn"])
+                c["stale" if d == "stale_lean" else "other" if d == "wrong_lean" else "decision"] += 1
+            if s_["pin_moved"]:
+                c["moves"] += 1
+                c["moved_with"] += s_["lean_ok"] is True
+    L += ["| Version type | Turn kind | Run-turns | Stated | Correct | Wrong | stale | other | decision only | Not stated | "
+          "Pin moves | Moved with it |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for key in sorted(cells, key=lambda k: order[k]):
+        c = cells[key]
+        L.append(f"| {key[0]} | {key[1]} | {c['turns']} | {c['stated']} | {c['correct']} | {c['wrong']} | {c['stale']} | "
+                 f"{c['other']} | {c['decision']} | {c['not_stated']} | {c['moves']} | {c['moved_with']} |")
+    return L
+
+
 def render_report(out_dir: str | Path, title: str | None = None) -> str:
     """A Markdown results page from runs.csv, labels.csv and experiment.json."""
     out_dir = Path(out_dir)
@@ -211,11 +264,13 @@ def render_report(out_dir: str | Path, title: str | None = None) -> str:
             came = "(nothing else)" if s is None else f"{s} (same label again)" if s == p else s
             L.append(f"| {p} | {came} | {n} |")
 
-    L += ["", "## Runs", "", "| Run uid | Run | Passed | Decision | Primary problem | Problem labels | Tokens in/out | Cost |",
-          "|---|---|---|---|---|---|---:|---:|"]
+    L += _state_section(out_dir, done)
+
+    L += ["", "## Runs", "", "| Run uid | Run | Passed | Decision | Primary problem | Problem labels | First wrong lean (turn) | Tokens in/out | Cost |",
+          "|---|---|---|---|---|---|---|---:|---:|"]
     for r in sorted(done, key=lambda r: r["run_id"]):
         L.append(f"| `{r.get('run_uid') or '-'}` | `{r['run_id']}` | {r['passed']} | {r.get('check_decision')} | "
-                 f"{primary_text(r)} | {r.get('check_labels') or '-'} | "
+                 f"{primary_text(r)} | {r.get('check_labels') or '-'} | {r.get('check_first_wrong_lean_turn') or '-'} | "
                  f"{int(_num(r.get('tokens_in'))):,}/{int(_num(r.get('tokens_out'))):,} | ${_num(r.get('cost_usd')):.3f} |")
     L += ["", "Traces: `" + str(out_dir / "traces") + "` (git-ignored). Noticing and consistency are not "
           "labelled by code; read the traces (`python -m capstone.cli show <trace>`) for those.", ""]
