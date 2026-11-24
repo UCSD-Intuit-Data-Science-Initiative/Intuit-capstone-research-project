@@ -41,7 +41,8 @@ def run_agent_turn(model: Model, system: str, messages: list[dict], tools: list[
         trace.add("agent", turn=turn, text=reply.text,
                   tool_calls=[{"id": c.id, "name": c.name, "args": c.args, "raw_args": c.raw_args}
                               for c in reply.tool_calls],
-                  stop_reason=reply.stop_reason, served_by=reply.served_by, usage=reply.usage)
+                  stop_reason=reply.stop_reason, served_by=reply.served_by, usage=reply.usage,
+                  reasoning=reply.reasoning)
         if not reply.tool_calls:
             return TurnResult(reply.text, model_calls, executed, hit_step_cap=False)
 

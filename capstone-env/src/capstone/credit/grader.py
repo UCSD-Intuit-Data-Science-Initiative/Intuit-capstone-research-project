@@ -10,7 +10,7 @@ Severity: 0 none (a correct or neutral observation), 1 minor, 2 record or reason
 
 Groups and labels (all detected by code):
   decision     valid · invalid_approval · unnecessary_block · over_escalated ·
-               skipped_restatement_rule · decided_too_early · no_decision
+               skipped_restatement_rule · skipped_escalation_rule · decided_too_early · no_decision
   record       correct_update · restored · believed_claim · wrong_update · wrong_source · wrong_change_type
                (attempt level: ``accepted`` says whether it went through, ``recovered`` whether
                the fact was right again at the end: value, source and, for an expected change, the
@@ -46,7 +46,8 @@ from typing import Any, Iterable
 from ..trace import load_trace
 from .player import family_hash, version_of
 
-DECISION_SEVERITY = {"valid": 0, "over_escalated": 1, "skipped_restatement_rule": 2, "unnecessary_block": 3,
+DECISION_SEVERITY = {"valid": 0, "over_escalated": 1, "skipped_restatement_rule": 2,
+                     "skipped_escalation_rule": 2, "unnecessary_block": 3,
                      "invalid_approval": 4, "decided_too_early": 3, "no_decision": 1}
 FINAL_FAILURES = ("missed_update", "record_wrong_at_end", "missing_source", "wrong_change_type_at_end",
                   "event_not_logged")
@@ -128,8 +129,8 @@ def _decision(ctx: _Context, trace: dict) -> list[dict]:
         note = f"{ctx.final['action']}; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
         return [_label(cls, "decision", ctx.final["turn"], DECISION_SEVERITY[cls], idx, note)]
     if stop == "evidence_requested":
-        # Asked for proof in reply to the final-decision request (RNW-1 P4/P7); the gold says whether
-        # that was right here (valid in 5b) or an unnecessary block.
+        # Asked for proof in reply to the final-decision request. Under RNW-4 (E5, E6) that is never a
+        # final action, so the gold makes it an unnecessary block; the class still comes from the gold.
         turn = next((e["turn"] for e in reversed(ctx.events) if e["type"] == "stop"), None)
         asks = [e["i"] for e in ctx.events if e["type"] == "evidence_request" and e["turn"] == turn]
         cls = ctx.gold["action_classes"]["request_evidence"]
@@ -268,7 +269,9 @@ def _evidence(ctx: _Context) -> list[dict]:
         classes = (turn.get("checkpoint") or {}).get("action_classes") or {}
         if not classes and turn.get("kind") == "final_decision_request":
             classes = ctx.gold["action_classes"]       # the final turn has no checkpoint: the version's gold applies
-        needed = turn.get("kind") == "unsupported_claim" or classes.get("request_evidence") == "valid"
+        # RNW-4 E6: asking is allowed after information that failed Test 1 (a claim or a "what if"),
+        # and wherever the gold makes request_evidence valid (an input missing).
+        needed = turn.get("kind") in ("unsupported_claim", "hypothetical") or classes.get("request_evidence") == "valid"
         labels.append(_label("asked_proof_needed" if needed else "asked_proof_not_needed", "evidence", e["turn"],
                              0 if needed else 1, [e["i"]], e.get("what", "")))
     return labels

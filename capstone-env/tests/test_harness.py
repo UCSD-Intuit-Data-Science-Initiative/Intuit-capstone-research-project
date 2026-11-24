@@ -370,3 +370,34 @@ def test_openai_adapter_needs_its_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
         make_model("o", {"o": {"provider": "openai", "model": "x"}})
+
+
+def test_an_empty_stream_is_an_error_not_an_empty_reply(monkeypatch):
+    from capstone.models import OpenAIModel
+    monkeypatch.setenv("OLLAMA_API_KEY", "x")
+    m = OpenAIModel("q", "qwen", api_key_env="OLLAMA_API_KEY")
+    monkeypatch.setattr(m.client.chat.completions, "create", lambda **kw: iter(()))
+    with pytest.raises(RuntimeError, match="empty stream"):
+        m.chat("s", [{"role": "user", "content": "hi"}], [])
+
+
+def test_openai_adapter_keeps_the_models_thinking_but_never_sends_it_back(monkeypatch):
+    """Ollama and OpenRouter stream thinking as `reasoning`; it goes to the trace, not to the next call."""
+    import openai
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    model = make_model("o", {"o": {"provider": "openrouter", "model": "some/model"}})
+    base = {"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "some/model"}
+
+    def chunk(delta, finish=None):
+        return {**base, "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+
+    stream = _sse([chunk({"role": "assistant", "content": "", "reasoning": "Growth is "}),
+                   chunk({"reasoning": "below the threshold."}), chunk({}, "stop"),
+                   {**base, "choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 6, "total_tokens": 16}},
+                   "[DONE]"], named=False)
+    model.client = _client_with(openai.OpenAI, stream, [])
+    reply = model.chat("rules", NEUTRAL, TOOLS)
+    assert reply.reasoning == "Growth is below the threshold." and reply.text == ""
+    from capstone.models import to_openai_messages
+    history = to_openai_messages("", [{"role": "assistant", "content": reply.text, "tool_calls": []}])
+    assert "reasoning" not in json.dumps(history)

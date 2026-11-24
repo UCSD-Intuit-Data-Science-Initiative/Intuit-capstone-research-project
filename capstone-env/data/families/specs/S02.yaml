@@ -10,6 +10,7 @@ selection:
   waived_checks: {}
 template: growth_v1
 figure_basis: reported
+unit: $ millions  # the page text states segment figures in millions
 figure_note: Reported segment results (consulting, 2007-2009).
 
 borrower: Borrower D
@@ -20,7 +21,7 @@ forbidden_terms: ["aon", "benfield"]
 hidden_rows: [3]
 
 policy:
-  id: RNW-1
+  id: RNW-4
   threshold: -0.03   # a negative threshold, so neither value can be judged by its sign alone
   metric: segment revenue
 

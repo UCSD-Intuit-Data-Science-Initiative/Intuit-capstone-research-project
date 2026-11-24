@@ -13,6 +13,7 @@ selection:
       kept as hand-picked (Nov 3)
 template: growth_v1
 figure_basis: reported
+unit: $ millions  # the table header says "( in millions )"
 figure_note: Reported segment results (electronic systems segment, years 2005-2007).
 
 borrower: Borrower B
@@ -27,7 +28,7 @@ forbidden_terms: ["lockheed", "f-35", "f-22", "f-16", "c-130j", "c-5"]
 hidden_rows: []
 
 policy:
-  id: RNW-1
+  id: RNW-4
   threshold: 0.10
   metric: year-end backlog
 

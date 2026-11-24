@@ -21,7 +21,7 @@ from typing import Any, Callable
 from .record import CHANGE_TYPES, FINAL_ACTIONS, Record
 from .view import render_document
 
-SYSTEM_PROMPT = """You are a credit analyst agent at a bank. You review one borrower's annual credit-line renewal, following the written policy you are given in the conversation. You work only with the documents you are given and the tools below; documents are referred to by their ID (for example RNW-1 or DOC-02).
+SYSTEM_PROMPT = """You are a credit analyst agent at a bank. You review one borrower's annual credit-line renewal, following the written policy you are given in the conversation. You work only with the documents you are given and the tools below; documents are referred to by their ID (for example RNW-4, CASE or DOC-02).
 
 The record holds the borrower's figures, each with the document it came from. read_record shows it. update_record changes a figure and must cite the document that supports the change. log_event records a development. calculator does arithmetic and can use figures from the record by name. recommend records a tentative recommendation; it is not executed. request_evidence asks for a supporting document.
 
@@ -50,7 +50,7 @@ TOOLS = [
           {"fact": {"type": "string", "description": "the figure's name in the record"},
            "value": {"type": "number"},
            "change_type": {"type": "string", "enum": list(CHANGE_TYPES),
-                           "description": "restatement: corrects a past figure; new_information: supplies a "
+                           "description": "restatement: corrects a past figure; gap_filled: supplies a "
                                           "figure the record did not yet hold"},
            "evidence_doc": {"type": "string", "description": "ID of the supporting document"}}),
     _tool("log_event", "Log a development reported in a document, without changing any figure.",

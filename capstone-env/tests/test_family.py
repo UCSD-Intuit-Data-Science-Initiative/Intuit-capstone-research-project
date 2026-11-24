@@ -18,7 +18,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPECS = REPO_ROOT / "data/families/specs"
 SPEC_PATH = SPECS / "F001.yaml"
 JSON_PATH = REPO_ROOT / "data/families/pilot/F001/family.json"
-POLICY_PATH = REPO_ROOT / "data/families/policies/RNW-1.yaml"
+POLICY_PATH = REPO_ROOT / "data/families/policies/RNW-1.yaml"     # kept for history; no spec uses it
+RNW4_PATH = REPO_ROOT / "data/families/policies/RNW-4.yaml"
 TEMPLATE_PATH = REPO_ROOT / "data/families/templates/growth_v1.yaml"
 FAMILIES = {"F001": "pilot", "F002": "pilot", "S01": "smoke", "S02": "smoke"}
 VERSION_IDS = ["1", "2", "3", "4", "5a", "5b", "6", "7", "8"]
@@ -185,9 +186,44 @@ def test_edit_size_at_the_cap():
 
 
 def test_classes_for_a_renew_family():
-    c = F.classes_final(True, False, False)
+    c = F.classes_final(True, False)
     assert c == {"renew": "valid", "decline": "unnecessary_block",
                  "escalate": "over_escalated", "request_evidence": "unnecessary_block"}
+
+
+def test_growth_not_computable_at_the_decision_needs_escalation():
+    """RNW-4 F1(b): only escalate is valid; declining skips the rule, renewing approves blind."""
+    assert F.classes_final(None, False) == {"renew": "invalid_approval", "decline": "skipped_escalation_rule",
+                                            "escalate": "valid", "request_evidence": "unnecessary_block"}
+
+
+def test_a_pending_flip_makes_escalate_the_valid_lean():
+    assert F.classes_checkpoint(-0.04, 0.01, escalation_pending=True)["escalate"] == "valid"
+    assert F.classes_checkpoint(-0.04, 0.01)["escalate"] == "over_escalated"
+
+
+def test_document_dates_are_required_and_follow_supersedes():
+    ok = [{"doc_id": "DOC-01", "doc_type": "financial_schedule", "dated": "February 10, 2016"},
+          {"doc_id": "DOC-02", "doc_type": "amended_financial_schedule", "dated": "February 24, 2016",
+           "supersedes": "DOC-01"}]
+    F.check_document_dates([{"doc_id": "RNW-4", "doc_type": "policy"}] + ok, "x")
+    with pytest.raises(F.FamilyError, match="has no date"):
+        F.check_document_dates([{**ok[0], "dated": None}], "x")
+    with pytest.raises(F.FamilyError, match="dated before DOC-01"):
+        F.check_document_dates([ok[0], {**ok[1], "dated": "February 1, 2016"}], "x")
+    with pytest.raises(F.FamilyError, match="is not like"):
+        F.check_document_dates([{**ok[0], "dated": "2016-02-10"}], "x")
+
+
+def test_rnw4_keeps_its_review_parameters_and_rejects_others():
+    policy = yaml.safe_load(RNW4_PATH.read_text())
+    filled = F.fill_policy(policy, 0.01, "net sales")
+    assert "{THRESHOLD}" in next(r["text"] for r in filled["rules"] if r["id"] == "E3")
+    ids = [r["id"] for r in filled["rules"]]
+    assert {"C2A", "D4a", "O1", "O9", "F1", "T20"} <= set(ids) and len(ids) == len(set(ids))
+    bad = {**policy, "rules": policy["rules"] + [{"id": "Z1", "text": "Use {OTHER}."}]}
+    with pytest.raises(F.FamilyError, match="unfilled placeholder"):
+        F.fill_policy(bad, 0.01, "net sales")
 
 
 # ---------------------------------------------------------------- new pieces as units
@@ -303,7 +339,7 @@ def test_template_has_the_nine_versions_in_order():
 def test_spec_text_keys_must_be_template_defaults(tmp_path):
     for folder in ("specs", "policies", "templates"):
         (tmp_path / "data/families" / folder).mkdir(parents=True)
-    (tmp_path / "data/families/policies/RNW-1.yaml").write_text(POLICY_PATH.read_text())
+    (tmp_path / "data/families/policies/RNW-4.yaml").write_text(RNW4_PATH.read_text())
     (tmp_path / "data/families/templates/growth_v1.yaml").write_text(TEMPLATE_PATH.read_text())
     raw = yaml.safe_load(SPEC_PATH.read_text())
     path = tmp_path / "data/families/specs/F001.yaml"
@@ -406,11 +442,11 @@ def source_e(spec, convs):
 def test_provenance_hashes_the_spec_template_and_policy_files(spec):
     prov = spec["provenance"]
     assert prov["spec"] == "data/families/specs/F001.yaml"
-    assert prov["policy"] == "data/families/policies/RNW-1.yaml"
+    assert prov["policy"] == "data/families/policies/RNW-4.yaml"
     assert prov["template"] == "data/families/templates/growth_v1.yaml"
     assert prov["spec_sha256"] == F._sha256(yaml.safe_load(SPEC_PATH.read_text()))
     assert prov["template_sha256"] == F._sha256(yaml.safe_load(TEMPLATE_PATH.read_text()))
-    policy = yaml.safe_load(POLICY_PATH.read_text())
+    policy = yaml.safe_load(RNW4_PATH.read_text())
     assert prov["policy_sha256"] == F._sha256(policy)
     changed = copy.deepcopy(policy)
     changed["rules"][2]["text"] += " Audited filings only."
@@ -457,7 +493,7 @@ def test_label_prefilter_keeps_the_order_and_the_pick(spec, rows, convs):
 def test_stale_table_changes_the_intended_cell_only(on_disk, source_e):
     source = source_e["table"]
     v3 = by_id(on_disk, "3")
-    stale = turns(v3)[0]["documents"][1]["table"]
+    stale = turns(v3)[0]["documents"][2]["table"]
     diff = [(i, j) for i, r in enumerate(source) for j, c in enumerate(r) if stale[i][j] != c]
     assert diff == [(1, 1)] and stale[1][1] == "$ 48790"
     assert locate("48790", stale) == [(1, 1)] and locate("45366", stale) == []
@@ -531,7 +567,7 @@ def test_version_2_starts_without_the_metric_inputs(on_disk):
     log = v["expected_final_record"]["change_log"]
     assert [(c["fact"], c["evidence_doc"]) for c in log] == [
         ("net_sales_2015", "DOC-02"), ("net_sales_2014", "DOC-03")]
-    assert {c["change_type"] for c in log} == {"new_information"}
+    assert {c["change_type"] for c in log} == {"gap_filled"}
 
 
 @needs_data
@@ -548,7 +584,7 @@ def test_version_2_is_gradual_with_a_tentative_step_after_each_document(on_disk)
     assert ts[5]["checkpoint"]["metric_value"] == pytest.approx(-0.042285, abs=1e-6)
     assert F.grade_checkpoint(ts[5], "decline") == "valid"
     assert F.grade_checkpoint(ts[5], "request_evidence") == "unnecessary_block"
-    first, second = ts[0]["documents"][1]["table"], ts[2]["documents"][0]["table"]
+    first, second = ts[0]["documents"][2]["table"], ts[2]["documents"][0]["table"]
     assert (first[1][1], first[1][2]) == ("", "")
     assert (second[1][1], second[1][2]) == ("$ 45366", "")
 
@@ -596,13 +632,22 @@ def test_every_version_opens_with_the_pending_renewal_policy_and_actions(on_disk
     for v in on_disk["versions"]:
         for mode in F.MODES:
             opening = turns(v, mode)[0]
-            assert opening["kind"] == "opening" and "pending your decision" in opening["text"]
-            assert all(a in opening["text"] for a in F.ACTIONS)
-            policy, schedule = opening["documents"][:2]
-            assert policy["doc_type"] == "policy" and policy["doc_id"] == "RNW-1"
+            assert opening["kind"] == "opening" and "renewal is pending" in opening["text"]
+            # findings first: the opening says a decision will be asked for later (RNW-4 E5)
+            assert "pending your decision" not in opening["text"] and "when it is time" in opening["text"]
+            # the final actions are named; request_evidence is not offered as one (RNW-4 A1, E6)
+            assert all(a in opening["text"] for a in ("renew", "decline", "escalate"))
+            assert "request_evidence" not in opening["text"]
+            policy, header, schedule = opening["documents"][:3]
+            assert policy["doc_type"] == "policy" and policy["doc_id"] == "RNW-4"
             assert all(r["text"] in policy["body"] for r in spec["policy"]["rules"])
-            assert "+1.0%" in policy["body"]
-            assert schedule["doc_id"] == "DOC-01"
+            assert header["doc_type"] == "case_header" and header["doc_id"] == "CASE"
+            params = dict(header["table"][1:])
+            assert params["{THRESHOLD}"] == "+1.0%" and params["{METRIC}"] == "net sales"
+            assert params["{SCHEDULE}"] == f"DOC-01, {schedule['title']}, dated {schedule['dated']}"
+            assert params["{FIGURE_BASIS}"] == "Unaudited pro forma"
+            assert "net_sales_2015 (net sales, 2015) [metric fact]" in params["{FACTS}"]
+            assert schedule["doc_id"] == "DOC-01" and schedule["dated"]
 
 
 @needs_data
@@ -708,7 +753,7 @@ def test_hypothetical_answer_is_computed(on_disk):
     ("4", "request_evidence", "unnecessary_block"), ("4", "renew", "invalid_approval"),
     ("5a", "decline", "valid"), ("5a", "escalate", "over_escalated"),
     ("5a", "request_evidence", "unnecessary_block"), ("5a", "renew", "invalid_approval"),
-    ("5b", "decline", "valid"), ("5b", "request_evidence", "valid"),
+    ("5b", "decline", "valid"), ("5b", "request_evidence", "unnecessary_block"),
     ("5b", "escalate", "over_escalated"), ("5b", "renew", "invalid_approval"),
     ("6", "decline", "valid"), ("6", "escalate", "over_escalated"), ("6", "request_evidence", "unnecessary_block"),
     ("7", "decline", "valid"), ("7", "escalate", "over_escalated"), ("7", "renew", "invalid_approval"),
@@ -740,7 +785,7 @@ def test_fixed_strategies_cannot_score_perfectly_and_classes_stay_separate(disk)
     assert F.score_strategy(f001, "escalate") == {"over_escalated": 8, "valid": 1}
     assert F.score_strategy(f001, "decline") == {"valid": 8, "skipped_restatement_rule": 1}
     assert F.score_strategy(f001, "renew") == {"invalid_approval": 9}
-    assert F.score_strategy(f001, "request_evidence") == {"unnecessary_block": 8, "valid": 1}
+    assert F.score_strategy(f001, "request_evidence") == {"unnecessary_block": 9}   # never final (RNW-4 E6)
     s01 = disk["S01"]                                   # the renew family
     assert F.score_strategy(s01, "renew") == {"valid": 8, "skipped_restatement_rule": 1}
     assert F.score_strategy(s01, "decline") == {"unnecessary_block": 9}
@@ -807,7 +852,7 @@ def test_build_stops_if_a_document_changes_an_unlisted_fact(spec, source_e, rows
 
 @needs_data
 @pytest.mark.parametrize("vid,turn,doc_id,synthetic", [
-    ("6", 0, "RNW-1", False), ("6", 0, "DOC-01", False), ("5b", 0, "DOC-01", False),
+    ("6", 0, "RNW-4", False), ("6", 0, "CASE", False), ("6", 0, "DOC-01", False), ("5b", 0, "DOC-01", False),
     ("1", 0, "DOC-01", True), ("1", 0, "DOC-02", True),
     ("2", 0, "DOC-01", True), ("2", 2, "DOC-02", True), ("2", 4, "DOC-03", True),
     ("3", 0, "DOC-01", True), ("3", 2, "DOC-02", True),
@@ -854,7 +899,7 @@ def test_only_synthetic_documents_have_edited_cells(disk):
 @needs_data
 def test_schema_requires_edited_cells_on_a_synthetic_document(on_disk):
     bad = copy.deepcopy(on_disk)
-    del turns(by_id(bad, "3"))[0]["documents"][1]["edited_cells"]
+    del turns(by_id(bad, "3"))[0]["documents"][2]["edited_cells"]
     assert F.validate(bad)
 
 
@@ -886,7 +931,7 @@ def test_schema_rejects_a_missing_field(on_disk, path):
 def test_schema_rejects_wrong_types(on_disk):
     bad = copy.deepcopy(on_disk)
     bad["versions"][0]["gold"]["meets_threshold"] = "no"
-    turns(bad["versions"][1])[0]["documents"][1]["table"] = "table"
+    turns(bad["versions"][1])[0]["documents"][2]["table"] = "table"
     bad["versions"][2]["gold"]["action_classes"]["renew"] = "fine"
     assert len(F.validate(bad)) == 3
 
@@ -897,7 +942,7 @@ def test_review_notes_the_pro_forma_figures(on_disk):
     review = F.render_review(on_disk)
     assert review.count("unaudited pro forma") >= 2
     assert review.index("Figures are not reported results") < review.index("## Source table")
-    assert "P12" in review and "pro forma schedule" in review
+    assert "C1" in review and "pro forma" in review
 
 
 @needs_data
@@ -917,20 +962,23 @@ def test_summary_table_has_one_row_per_version_matching_the_gold(on_disk):
 
 
 @needs_data
-def test_family_json_carries_provenance_and_schema_3(on_disk, spec):
-    assert on_disk["schema_version"] == 3 and on_disk["provenance"] == spec["provenance"]
+def test_family_json_carries_provenance_and_schema_4(on_disk, spec):
+    assert on_disk["schema_version"] == 4 and on_disk["provenance"] == spec["provenance"]
     bad = copy.deepcopy(on_disk)
     del bad["provenance"]["template_sha256"]
     assert "provenance: missing template_sha256" in F.validate(bad)
     bad = copy.deepcopy(on_disk)
     bad["policy"]["rules"][0]["text"] = "Use {metric}."
     assert "policy: unfilled placeholder in the rules" in F.validate(bad)
+    bad = copy.deepcopy(on_disk)
+    del turns(by_id(bad, "3"))[2]["documents"][0]["dated"]
+    assert any("missing dated" in e for e in F.validate(bad))
 
 
-def test_shared_policy_keeps_the_f001_wording(spec):
-    assert spec["policy"]["rules"][1]["text"] == (
-        "At the threshold (+1.0%) or above, the line is eligible to renew. Below it, decline, "
-        "unless P6 requires escalation.")
+def test_specs_use_rnw4_with_its_parameters_left_for_the_case_header(spec):
+    rules = {r["id"]: r["text"] for r in spec["policy"]["rules"]}
+    assert spec["policy"]["id"] == "RNW-4" and rules["E3"].startswith("Compare. Growth at or above {THRESHOLD}")
+    assert "Documents attached to the opening message are processed" in rules["F1"]   # F-1, Default A
 
 
 # ---------------------------------------------------------------- version 1 upfront, 6, 7, 8 (F001)
@@ -940,12 +988,12 @@ def test_shared_policy_keeps_the_f001_wording(spec):
 def test_upfront_gives_the_stale_schedule_and_its_correction_at_once(on_disk):
     v1 = by_id(on_disk, "1")
     docs = turns(v1)[0]["documents"]
-    assert [d["doc_id"] for d in docs] == ["RNW-1", "DOC-01", "DOC-02"]
-    assert docs[1]["table"][1][1] == "$ 48790" and docs[2]["supersedes"] == "DOC-01"
+    assert [d["doc_id"] for d in docs] == ["RNW-4", "CASE", "DOC-01", "DOC-02"]
+    assert docs[2]["table"][1][1] == "$ 48790" and docs[3]["supersedes"] == "DOC-01"
     assert "an amended schedule are attached" in turns(v1)[0]["text"]
     assert v1["initial_record"]["facts"]["net_sales_2015"]["value"] == 48790.0
     assert v1["expected_final_record"]["change_log"][0]["change_type"] == "restatement"
-    # decided from scratch: nothing tentative came before the correction, so nothing flips
+    # RNW-4 F1(a): documents in the opening are processed before the baseline, so nothing flips
     assert v1["gold"]["acceptable_actions"] == ["decline"] and turns(v1)[0]["checkpoint"]["meets_threshold"] is False
 
 
@@ -953,7 +1001,7 @@ def test_upfront_gives_the_stale_schedule_and_its_correction_at_once(on_disk):
 def test_original_is_the_plain_source_conversation(on_disk):
     v6 = by_id(on_disk, "6")
     assert v6["table_edits"] == [] and v6["expected_final_record"]["change_log"] == []
-    assert v6["gold"]["record_must_change"] is False and v6["gold"]["policy_rules"] == ["P2"]
+    assert v6["gold"]["record_must_change"] is False and v6["gold"]["policy_rules"] == ["A2", "C1", "E3"]
 
 
 @needs_data
@@ -965,7 +1013,7 @@ def test_correction_that_does_not_flip_keeps_the_decision(disk, fid):
     assert tentative["meets_threshold"] is v7["gold"]["meets_threshold"]
     assert tentative["metric_value"] != v7["gold"]["metric_value"]       # the correction does move it
     assert v7["gold"]["action_classes"] == v6["gold"]["action_classes"]   # but not the decision
-    assert v7["gold"]["record_must_change"] and "P6" in v7["gold"]["policy_rules"]
+    assert v7["gold"]["record_must_change"] and {"O2", "F3"} <= set(v7["gold"]["policy_rules"])
     threshold, nonflip = f["policy"]["threshold"], f["checks"]["nonflip_margin"]["value"]
     assert F.margin_ok(nonflip, threshold)
     assert (nonflip >= threshold) is (f["checks"]["true_margin"]["value"] >= threshold)
@@ -983,7 +1031,7 @@ def test_new_event_leaves_past_figures_unchanged(disk, fid):
     notice = next(d for t in turns(v8) for d in t["documents"] if d["doc_id"] == event["evidence_doc"])
     assert notice["doc_type"] == "officer_notice" and notice["signed_by"] and notice["dated"] == event["dated"]
     assert notice["table"] == [] and notice["synthetic"] is True
-    assert event["change_type"] == "new_event" and "P11" in v8["gold"]["policy_rules"]
+    assert event["change_type"] == "new_event" and {"C3", "O4"} <= set(v8["gold"]["policy_rules"])
     assert v8["gold"]["action_classes"] == v6["gold"]["action_classes"]
     facts = v8["expected_final_record"]["facts"]
     assert F.grade(v8, "decline", facts)["record_failures"] == ["event_not_logged"]
@@ -1125,7 +1173,7 @@ def test_correction_bodies_quote_the_numbers_as_shown_in_the_tables(disk, fid):
     for vid, doc_turn in (("3", 2), ("7", 2), ("1", 0)):
         v = by_id(disk[fid], vid)
         ts = turns(v)
-        stale = ts[0]["documents"][1]["table"]
+        stale = ts[0]["documents"][2]["table"]
         amended = next(d for d in ts[doc_turn]["documents"] if d["doc_type"] == "amended_financial_schedule")
         [cell] = [c for c in amended.get("edited_cells", [])] or [None]
         changed = [(i, j) for i in range(1, len(stale)) for j in range(1, len(stale[i]))
@@ -1162,8 +1210,7 @@ def test_gold_recomputes_from_the_last_table_given(disk, fid):
         assert metric == pytest.approx(gold["metric_value"], abs=1e-6)
         assert (metric >= threshold) is gold["meets_threshold"]
         flipped = v["version_id"] == "3"
-        claim = any(t["kind"] == "unsupported_claim" for t in turns(v))
-        assert gold["action_classes"] == F.classes_final(gold["meets_threshold"], flipped, claim)
+        assert gold["action_classes"] == F.classes_final(gold["meets_threshold"], flipped)
         assert gold["final_facts_hash"] == F.facts_hash(v["expected_final_record"]["facts"])
 
 
@@ -1203,7 +1250,7 @@ def test_version_3_flips_and_needs_escalation_in_every_family(disk):
 def test_s01_is_the_renew_family(disk):
     s01 = disk["S01"]
     assert by_id(s01, "6")["gold"]["acceptable_actions"] == ["renew"]
-    assert by_id(s01, "5b")["gold"]["acceptable_actions"] == ["renew", "request_evidence"]
+    assert by_id(s01, "5b")["gold"]["acceptable_actions"] == ["renew"]
     assert turns(by_id(s01, "5b"))[2]["speaker"] == "risk_officer"
     assert {f["family_id"] for f in disk.values()
             if by_id(f, "6")["gold"]["meets_threshold"]} == {"S01"}

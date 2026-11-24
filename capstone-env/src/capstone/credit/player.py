@@ -6,8 +6,8 @@ stops at the first of:
 
   final_action        a final action after the final-decision request (the normal end)
   evidence_requested  no final action, but ``request_evidence`` in reply to the final-decision request
-                      (RNW-1 P4/P7: asking for proof instead of deciding; the grader reads its class from
-                      the gold, e.g. valid in 5b and unnecessary_block elsewhere)
+                      (asking for proof instead of deciding; the grader reads its class from the gold,
+                      which under RNW-4 E5/E6 is unnecessary_block in every version)
   decided_too_early   a final action before it
   tool_limit_turn     more tool calls in one turn than ``Limits.tool_calls_per_turn``
   tool_limit_run      more tool calls in the run than ``Limits.tool_calls_per_run``

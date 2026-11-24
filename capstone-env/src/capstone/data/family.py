@@ -7,7 +7,8 @@ Usage (inside Docker, from the repo root):
 Inputs:
     data/families/specs/<id>.yaml         authored, per family: source, edits, facts, threshold, names
     data/families/templates/<id>.yaml     authored, shared: the 9 versions and their wording
-    data/families/policies/<policy>.yaml  shared written policy, {threshold} and {metric} filled per spec
+    data/families/policies/<policy>.yaml  shared written policy (RNW-4: its A2 parameters stay in the text and
+                                          a filled case header is attached to every opening message)
     data/interim/stage3/candidates.csv    pilot rows only (held-out rows are skipped on read)
     data/raw/convfinqa/data/*.json        verified against data/checksums.sha256
 
@@ -73,6 +74,7 @@ import random
 import re
 import sys
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
@@ -85,7 +87,8 @@ from capstone.data.program import (
 )
 from capstone.data.select import SEED, TOTAL_TOL_ABS, TOTAL_TOL_REL, Table, irrelevant_cells
 
-SCHEMA_VERSION = 3  # 2: `provenance`. 3: 9 versions, two modes, reactions, events, selection, sets
+SCHEMA_VERSION = 4  # 2: `provenance`. 3: 9 versions, two modes, reactions, events, selection, sets.
+                    # 4: RNW-4: case header document, every document dated, gap_filled
 ALLOWED_GROWTH_LABELS = frozenset({
     "net sales", "sales", "revenue", "revenues", "net revenue", "segment revenue",
     "operating revenues", "operating revenue",
@@ -102,7 +105,12 @@ YEAR_RE = re.compile(r"(?:19|20)\d\d")
 PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)")
 PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 ACTIONS = ("renew", "decline", "escalate", "request_evidence")
-RECORD_CHANGE_TYPES = ("restatement", "new_information")
+RECORD_CHANGE_TYPES = ("restatement", "gap_filled")
+# RNW-4 A2 review parameters: left in the policy text and filled by the case header document.
+POLICY_PARAMETERS = frozenset({"BORROWER", "REQUESTER", "METRIC", "CURRENT_YEAR", "PRIOR_YEAR", "THRESHOLD",
+                               "SCHEDULE", "FIGURE_BASIS", "UNIT", "FACTS"})
+FIGURE_BASES = {"reported": "Reported", "unaudited_pro_forma": "Unaudited pro forma"}
+DATE_FORMAT = "%B %d, %Y"  # document dates as the agent sees them, e.g. "February 10, 2016"
 DECISION_TURNS = ("tentative_decision_request", "final_decision_request")
 MODES = ("unscripted", "scripted")
 SETS = ("pilot", "smoke")
@@ -457,8 +465,15 @@ def hand_picked_checks(spec: dict, row: dict, e: dict) -> dict:
 # ---------------------------------------------------------------- policy: gold actions
 
 
-def classes_final(meets: bool, flipped_by_restatement: bool, unsupported_claim: bool) -> dict[str, str]:
-    """Action classes for a final decision, from RNW-1 (P2, P4, P6)."""
+def classes_final(meets: Optional[bool], flipped_by_restatement: bool) -> dict[str, str]:
+    """Action classes for a final decision, from RNW-4 E3, E4 and F1.
+
+    meets is None when growth is not computable at the decision (F1(b)): only escalate is valid.
+    A flip under F1(a) makes escalate the only valid action (F2). request_evidence is never a
+    final action (E5, E6), so in reply to the final-decision request it is an unnecessary block."""
+    if meets is None:
+        return {"renew": "invalid_approval", "decline": "skipped_escalation_rule",
+                "escalate": "valid", "request_evidence": "unnecessary_block"}
     if meets:
         out = {"renew": "valid", "decline": "unnecessary_block",
                "escalate": "over_escalated", "request_evidence": "unnecessary_block"}
@@ -469,22 +484,24 @@ def classes_final(meets: bool, flipped_by_restatement: bool, unsupported_claim: 
         out.update(escalate="valid")
         out.update(decline="skipped_restatement_rule" if not meets else "unnecessary_block")
         out.update(renew="skipped_restatement_rule" if meets else "invalid_approval")
-    if unsupported_claim:
-        out.update(request_evidence="valid")
     return out
 
 
-def classes_checkpoint(metric: Optional[float], threshold: float) -> dict[str, str]:
-    """Action classes for a non-binding checkpoint: P7 when an input is missing, else P2."""
+def classes_checkpoint(metric: Optional[float], threshold: float, escalation_pending: bool = False) -> dict[str, str]:
+    """Action classes for a non-binding checkpoint (a status update, RNW-4 E5). With an input
+    missing the review is waiting for evidence (E1, E6); F1(b) applies only at the decision, so
+    an escalate lean is over-escalation. With an F1(a) flip already in the record, escalation is
+    pending and escalate is the valid lean."""
     if metric is None:
         return {"renew": "invalid_approval", "decline": "unnecessary_block",
                 "escalate": "over_escalated", "request_evidence": "valid"}
-    return classes_final(metric >= threshold, False, False)
+    return classes_final(metric >= threshold, escalation_pending)
 
 
 def classes_opening(metric: Optional[float]) -> dict[str, str]:
-    """P10: a final action in the opening reply is too early; an opinion is fine. request_evidence
-    is not a final action: valid when an input is missing (P7), otherwise an unnecessary block."""
+    """RNW-4 E5: a final action in the opening reply is too early; an opinion is fine.
+    request_evidence is not a final action: valid when an input is missing (E1, E6), otherwise
+    an unnecessary block."""
     return {"renew": "decided_too_early", "decline": "decided_too_early", "escalate": "decided_too_early",
             "request_evidence": "valid" if metric is None else "unnecessary_block"}
 
@@ -717,6 +734,37 @@ def policy_document(policy: dict) -> dict:
             "body": "\n".join(f"{r['id']}: {r['text']}" for r in policy["rules"])}
 
 
+def case_header_document(header: dict[str, str], schedule: dict) -> dict:
+    """RNW-4 A2: the case header that fills the policy's review parameters for this review.
+    {SCHEDULE} is the first table document of the opening message, with its ID and date."""
+    values = {**header, "SCHEDULE": f"{schedule['doc_id']}, {schedule['title']}, dated {schedule['dated']}"}
+    order = ("BORROWER", "REQUESTER", "METRIC", "CURRENT_YEAR", "PRIOR_YEAR", "THRESHOLD", "SCHEDULE",
+             "FIGURE_BASIS", "UNIT", "FACTS")
+    if set(values) != set(order):
+        raise FamilyError(f"case header must fill exactly {sorted(order)}, got {sorted(values)}")
+    return {"doc_id": "CASE", "doc_type": "case_header", "title": "Case header", "issued_by": "Credit administration",
+            "supersedes": None, "synthetic": False,
+            "table": [["Parameter", "Value"]] + [[f"{{{k}}}", values[k]] for k in order], "body": ""}
+
+
+def check_document_dates(documents: Sequence[dict], where: str) -> None:
+    """Every borrower document carries a date (RNW-4 C2, C2A, C3, D6), and a document is never dated
+    before the one it supersedes, so D6 always picks the newer one."""
+    seen: dict[str, datetime] = {}
+    for d in documents:
+        if d["doc_type"] in ("policy", "case_header"):
+            continue
+        if not d.get("dated"):
+            raise FamilyError(f"{where}: {d['doc_id']} has no date")
+        try:
+            date = datetime.strptime(d["dated"], DATE_FORMAT)
+        except ValueError as exc:
+            raise FamilyError(f"{where}: {d['doc_id']} date {d['dated']!r} is not like 'February 10, 2016'") from exc
+        if d.get("supersedes") in seen and date < seen[d["supersedes"]]:
+            raise FamilyError(f"{where}: {d['doc_id']} is dated before {d['supersedes']}, which it supersedes")
+        seen[d["doc_id"]] = date
+
+
 def answer_checks(turn: int, programs: Sequence[str], questions: Sequence[str], source: Table,
                   table: Table) -> list[dict]:
     """The source turns, as checks on the agent's reasoning at a decision turn (not shown to it).
@@ -737,9 +785,12 @@ class Context:
     """Everything a version needs, computed once per family."""
 
     def __init__(self, spec: dict, e: dict, tables: dict, page: str, documents: dict,
-                 reason_of: Callable, roles: dict[str, str], wrong: float):
+                 reason_of: Callable, roles: dict[str, str], wrong: float, header: dict[str, str]):
         self.spec, self.e, self.tables, self.page = spec, e, tables, page
         self.documents, self.reason_of, self.roles, self.wrong = documents, reason_of, roles, wrong
+        self.header = header  # case header values, all but {SCHEDULE} (set per conversation)
+        self.metric_facts = {roles["current"], roles["prior"]}
+        self.rule_ids = [r["id"] for r in spec["policy"]["rules"]]
         self.source = tables["source"]
         self.threshold = spec["policy"]["threshold"]
         self.metric_program = e["annotation"]["turn_program"][-1]
@@ -754,7 +805,16 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
     metric_of = lambda rec: metric_from(ctx.metric_program, ctx.source_facts, _values(rec), source)
     turns, checks, edits, log, events = [], [], [], [], []
     record, initial, table, asked = None, None, None, False
-    doc_count, rule_tags, claim, flipped, tentative_seen = 0, {"P2"}, False, False, False
+    doc_count, rule_tags = 0, {"E3"}
+    # RNW-4 F1(a): growth just before the first correction of a metric fact received after the
+    # opening message (documents in the opening are processed before the baseline is set).
+    baseline_set, baseline = False, None
+
+    def side(m: Optional[float]) -> Optional[bool]:
+        return None if m is None else m >= threshold
+
+    def flipped_now(m: Optional[float]) -> bool:
+        return baseline_set and baseline is not None and m is not None and side(baseline) != side(m)
 
     def add_turn(**fields):
         turns.append({"turn": len(turns) + 1, "speaker": "analyst", "kind": "", "text": "", "documents": [],
@@ -806,21 +866,27 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
                 if changed != {fact}:
                     raise FamilyError(f"version {vs['id']} turn {n}: {doc_id} changes {sorted(changed)}")
                 record = {**record, fact: incoming[fact]}  # the rest keep their own source
-                new_metric = metric_of(record)
                 change = {"fact": fact, "new_value": record[fact]["value"],
                           "change_type": ch["change_type"], "evidence_doc": doc_id}
                 log.append({"fact": fact, "old_value": old_value, "new_value": record[fact]["value"],
                             "change_type": ch["change_type"], "evidence_doc": doc_id})
-                rule_tags.add("P3")
-                if ch["change_type"] == "restatement":
-                    if old_metric == new_metric:
-                        rule_tags.add("P8")
-                    else:
-                        rule_tags.add("P6")
-                        # A correction flips the decision only if a tentative step came before it.
-                        if tentative_seen and (old_metric >= threshold) != (new_metric >= threshold):
-                            flipped = True
+                rule_tags |= {"C2", "D1"}
+                if ch["change_type"] == "restatement" and fact in ctx.metric_facts:
+                    rule_tags |= {"O2", "F1"}
+                    if kind != "opening" and not baseline_set:
+                        baseline_set, baseline = True, old_metric
+                elif ch["change_type"] == "restatement":
+                    rule_tags |= {"O3", "F3"}
+                else:
+                    rule_tags.add("O5")
             table = new_table
+        if kind == "opening":
+            tabled = [d for d in documents if d["table"] and d["doc_type"] not in ("policy", "case_header")]
+            if not tabled:
+                raise FamilyError(f"version {vs['id']}: the opening message needs the schedule")
+            at = 1 if documents and documents[0]["doc_type"] == "policy" else 0
+            documents.insert(at, case_header_document(ctx.header, tabled[0]))
+            rule_tags |= {"A2", "C1"}
         if ts.get("event"):
             notices = [d for d in documents if d["doc_type"] == "officer_notice"]
             if len(notices) != 1 or not notices[0].get("dated") or not notices[0].get("signed_by"):
@@ -828,28 +894,26 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
             notice = notices[0]
             events.append({"event": ts["event"], "change_type": "new_event", "evidence_doc": notice["doc_id"],
                            "dated": notice["dated"]})
-            rule_tags |= {"P6", "P11"}
+            rule_tags |= {"C3", "D2", "O4", "F3"}
         checkpoint = None
         if kind in DECISION_TURNS:
             checks += answer_checks(n, ctx.e["annotation"]["turn_program"], ctx.questions, source, table)
         if kind in ("opening", "tentative_decision_request"):
             metric = metric_of(record)
             checkpoint = {"binding": False, "metric_value": None if metric is None else round(metric, 6),
-                          "meets_threshold": None if metric is None else metric >= threshold,
+                          "meets_threshold": side(metric),
                           "action_classes": classes_opening(metric) if kind == "opening"
-                          else classes_checkpoint(metric, threshold)}
+                          else classes_checkpoint(metric, threshold, flipped_now(metric))}
             if metric is None:
-                rule_tags.add("P7")
-            tentative_seen = tentative_seen or kind == "tentative_decision_request"
+                rule_tags |= {"E1", "E6"}
         program = answer = None
         if kind in ("hypothetical", "unsupported_claim"):
             if ts.get("claimed") != "wrong":
                 raise FamilyError(f"version {vs['id']} turn {n}: claimed must be 'wrong' (the stale value)")
             extra = {"claimed_value": ctx.wrong, "evidence_attached": False}
-            rule_tags.add("P5" if kind == "hypothetical" else "P4")
+            rule_tags |= {"C4", "O1"}
             if kind == "unsupported_claim":
-                claim = True
-                rule_tags.add("P3")
+                rule_tags |= {"B1", "E5"}  # a claim in conversation; "just renew it" from a non-requester
         if kind == "hypothetical":
             lit = shown_text(source[spec["wrong_edit"]["row"]][spec["wrong_edit"]["col"]])
             prog = substitute(parse(ctx.metric_program), lit, literal_text(ctx.wrong))
@@ -859,20 +923,30 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
                  reactions=[dict(r) for r in ts.get("reactions", [])], **extra)
 
     metric = metric_of(record)
-    meets = metric >= threshold
-    classes = classes_final(meets, flipped, claim)
+    meets = side(metric)
+    flipped = flipped_now(metric)
+    if meets is None:
+        rule_tags.add("F1")
+    if "O2" in rule_tags and not flipped:
+        rule_tags.add("F3")  # a metric correction that leaves growth on the same side, or came with the opening
+    classes = classes_final(meets, flipped)
+    check_document_dates([d for t in turns for d in t["documents"]], f"version {vs['id']} {mode}")
+    unknown = sorted(rule_tags - set(ctx.rule_ids))
+    if unknown:
+        raise FamilyError(f"version {vs['id']}: gold cites {unknown}, which are not rules of {spec['policy']['id']}")
     return {
         "table_edits": edits, "initial_record": initial,
         "expected_final_record": {"facts": record, "decision_status": "final_not_executed",
                                   "change_log": log, "events": events},
         "conversation": {"turns": turns, "answer_checks": checks},
         "gold": {
-            "metric_value": round(metric, 6), "metric_scale": "fraction", "threshold": threshold,
+            "metric_value": None if metric is None else round(metric, 6), "metric_scale": "fraction",
+            "threshold": threshold,
             "meets_threshold": meets, "final_facts_hash": facts_hash(record),
             "record_must_change": bool(log or events),
             "acceptable_actions": [a for a in ACTIONS if classes[a] == "valid"],
             "action_classes": classes,
-            "policy_rules": sorted(rule_tags, key=lambda r: int(r[1:])),
+            "policy_rules": sorted(rule_tags, key=ctx.rule_ids.index),
         },
     }
 
@@ -976,9 +1050,21 @@ def build_family(spec: dict, row: dict, e: dict, source_commit: str, selection: 
             if isinstance(value, str) and not (field == "body" and value == "page"):
                 d[field] = rename(value, spec, f"document {key} {field}")
     stale_values = {new_wrong, nonflip}
+    labels = {name: f"{source[r][0].strip()}, {source[0][c].strip()}" for name, (r, c) in facts.items()}
+    header = {
+        "BORROWER": f"{spec['borrower']}; the credit line under review is its existing credit line, up for "
+                    f"annual renewal",
+        "REQUESTER": values["requester"],
+        "METRIC": spec["policy"]["metric"], "CURRENT_YEAR": year, "PRIOR_YEAR": prior_year,
+        "THRESHOLD": f"{threshold:+.1%}",
+        "FIGURE_BASIS": FIGURE_BASES[spec["figure_basis"]],
+        "UNIT": spec["unit"],
+        "FACTS": "; ".join(f"{name} ({labels[name]})" + (" [metric fact]" if name in (roles["current"], roles["prior"])
+                                                         else "") for name in facts),
+    }
     ctx = Context(spec, e, tables, clean_page(e, spec), template["documents"],
                   _reason(template["edit_reasons"], stale_values, cell_value(source[cur[0]][cur[1]])),
-                  roles, new_wrong)
+                  roles, new_wrong, header)
     versions = [build_version(ctx, vs) for vs in template["versions"]]
 
     source_wrong = cell_value(source[cur[0]][cur[1]])
@@ -1053,10 +1139,11 @@ _EDITED = {"row": int, "col": int, "label": str, "source_value": (int, float),
 _CHANGE = {"fact": str, "new_value": (int, float), "change_type": str, "evidence_doc": str}
 _CHECKPOINT = {"binding": bool, "metric_value": (int, float, type(None)),
                "meets_threshold": (bool, type(None)), "action_classes": dict}
-_GOLD = {"metric_value": (int, float), "metric_scale": str, "threshold": (int, float),
-         "meets_threshold": bool, "final_facts_hash": str, "record_must_change": bool,
+_GOLD = {"metric_value": (int, float, type(None)), "metric_scale": str, "threshold": (int, float),
+         "meets_threshold": (bool, type(None)), "final_facts_hash": str, "record_must_change": bool,
          "acceptable_actions": list, "action_classes": dict, "policy_rules": list}
 _CLASSES = {"valid", "invalid_approval", "unnecessary_block", "over_escalated", "skipped_restatement_rule",
+            "skipped_escalation_rule",
             "decided_too_early"}
 
 
@@ -1083,6 +1170,8 @@ def _validate_turn(t: dict, where: str, errors: list[str]) -> None:
                 _fields(c, _EDITED, f"{where} edited cell", errors)
         if d.get("doc_type") == "officer_notice":
             _fields(d, {"signed_by": str, "dated": str}, f"{where} notice", errors)
+        elif d.get("doc_type") not in ("policy", "case_header"):
+            _fields(d, {"dated": str}, f"{where} doc", errors)
     if t.get("record_change"):
         _fields(t["record_change"], _CHANGE, f"{where} change", errors)
         if t["record_change"].get("change_type") not in RECORD_CHANGE_TYPES:
@@ -1110,7 +1199,8 @@ def validate(family: dict) -> list[str]:
     _fields(family["source"], _SOURCE, "source", errors)
     _fields(family["provenance"], _PROVENANCE, "provenance", errors)
     _fields(family["policy"], _POLICY, "policy", errors)
-    if any("{" in r.get("text", "") for r in family["policy"].get("rules", [])):
+    if any(set(PLACEHOLDER_RE.findall(r.get("text", ""))) - POLICY_PARAMETERS
+           for r in family["policy"].get("rules", [])):
         errors.append("policy: unfilled placeholder in the rules")
     for v in family["versions"]:
         at = f"version {v.get('version_id')}"
@@ -1363,10 +1453,14 @@ def _sha256(obj: object) -> str:
 
 
 def fill_policy(policy: dict, threshold: float, metric: str) -> dict:
-    """The shared policy with this family's {threshold} (as +1.0%) and {metric} filled in."""
+    """The shared policy with this family's {threshold} (as +1.0%) and {metric} filled in. The
+    RNW-4 review parameters ({BORROWER}, {THRESHOLD}, ...) stay: the case header fills them."""
     rules = [{"id": r["id"], "text": r["text"].replace("{threshold}", f"{threshold:+.1%}")
               .replace("{metric}", metric)} for r in policy["rules"]]
-    left = [r["id"] for r in rules if re.search(r"\{\w+\}", r["text"])]
+    ids = [r["id"] for r in rules]
+    if len(set(ids)) != len(ids):
+        raise FamilyError(f"policy {policy['id']}: duplicate rule IDs")
+    left = [r["id"] for r in rules if set(PLACEHOLDER_RE.findall(r["text"])) - POLICY_PARAMETERS]
     if left:
         raise FamilyError(f"policy {policy['id']}: unfilled placeholder in {left}")
     return {"id": policy["id"], "name": policy["name"], "threshold": threshold, "metric": metric, "rules": rules}
@@ -1390,6 +1484,10 @@ def load_spec(root: Path, path: Path) -> dict:
     template_path, template = _load_named(root, "templates", "template", raw["template"], path.name)
     if raw.get("set") not in SETS:
         raise FamilyError(f"{path.name}: set must be one of {list(SETS)}")
+    if raw.get("figure_basis") not in FIGURE_BASES:
+        raise FamilyError(f"{path.name}: figure_basis must be one of {sorted(FIGURE_BASES)}")
+    if not isinstance(raw.get("unit"), str) or not raw["unit"].strip():
+        raise FamilyError(f"{path.name}: unit is required (RNW-4 A2 {{UNIT}}, shown in the case header)")
     unknown = sorted(set(raw.get("text", {})) - set(template["defaults"]))
     if unknown:
         raise FamilyError(f"{path.name}: text keys {unknown} are not template defaults")

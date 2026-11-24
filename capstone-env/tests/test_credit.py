@@ -85,7 +85,7 @@ def test_agent_view_keeps_only_speaker_text_and_document_fields():
     assert set(view) == {"speaker", "text", "documents"}
     for d in view["documents"]:
         assert set(d) <= set(AGENT_DOC_FIELDS) and "synthetic" not in d and "edited_cells" not in d
-    assert turn["documents"][1]["synthetic"] is True        # the source has it; the view does not
+    assert turn["documents"][2]["synthetic"] is True        # the source has it; the view does not
 
 
 @pytest.mark.parametrize("fam", families(), ids=lambda f: f["family_id"])
@@ -96,10 +96,12 @@ def test_no_gold_reaches_the_agent_in_any_conversation(fam):
         gold = v["gold"]
         leaks = [f"{gold['metric_value']:.4f}", f"{gold['metric_value']:.2%}"]
         # the version's name would tell the agent what is coming, unless the policy itself uses the word
-        leaks += [v["version_type"]] if v["version_type"].replace("_", " ") not in policy \
+        type_leak = [v["version_type"]] if v["version_type"].replace("_", " ") not in policy \
             and v["version_type"] not in policy else []
         for mode in MODES:
             for t in v["conversations"][mode]["turns"]:
+                # a turn may say its own kind in plain words ("Hypothetically, ..."); no other turn may
+                leaks_here = leaks + ([] if t["kind"] == v["version_type"] else type_leak)
                 view = agent_view(t)
                 text = render_message(view).lower()
                 blob = json.dumps(view)
@@ -108,14 +110,15 @@ def test_no_gold_reaches_the_agent_in_any_conversation(fam):
                              "expected_answer", "checkpoint"):
                     assert word not in text
                 assert not any(re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text) for n in real_names)
-                assert not any(x.lower() in text for x in leaks), (fam["family_id"], v["version_id"], t["turn"])
+                assert not any(x.lower() in text for x in leaks_here), (fam["family_id"], v["version_id"], t["turn"])
 
 
 def test_rendered_opening_carries_the_policy_the_schedule_and_its_table():
     fam = load_family(F001)
     msg = render_message(agent_view(version_of(fam, "6")["conversations"]["unscripted"]["turns"][0]))
     assert msg.startswith("Analyst: Borrower A's credit line is up for annual renewal")
-    assert "[RNW-1] Annual credit-line renewal" in msg and "P12:" in msg
+    assert "[RNW-4] Credit-line renewal" in msg and "C2A:" in msg and "O9:" in msg
+    assert "[CASE] Case header" in msg and "| {THRESHOLD} | +1.0% |" in msg
     assert "[DOC-01] Supplemental pro forma schedule (unaudited)" in msg
     assert "| net sales | $ 45366 | $ 47369 |" in msg and "[schedule table]" not in msg
 
@@ -447,7 +450,7 @@ def test_cli_runs_families_end_to_end_with_the_mock(tmp_path):
     # no final action is "none" (not the toy world's "ask"); acceptable actions are one plain cell
     assert {r["final_action"] for r in rows} == {"none"}
     assert {(r["version"], r["expected_outcome"]) for r in rows} == {
-        ("3", "escalate"), ("6", "decline"), ("5b", "decline;request_evidence")}
+        ("3", "escalate"), ("6", "decline"), ("5b", "decline")}
     assert {r["passed"] for r in rows} == {"False"} and {r["case_id"] for r in rows} == {"F001"}
     trace = json.loads(next((out / "traces").glob("F001__3__unscripted*.json")).read_text())
     assert trace["expected_outcome"] == ["escalate"] and trace["summary"]["n_turns"] == 4

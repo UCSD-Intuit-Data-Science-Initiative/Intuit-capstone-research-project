@@ -347,4 +347,34 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   tell a corrected past error from new information). (D) A run is graded only against the family file it was
   played with: a `case_hash` mismatch is refused unless `--allow-family-change`, which marks `family_changed`
   (no frozen copy of family files for now). Pass rates from before and after (C) are not comparable.
+- 2026-11-23 RNW-4 logic fixes (Sophia). The corrected text is in docs/policy/RNW-4.md,
+  with a change list F-1 to F-13; the per-case check of F001 is in docs/policy/RNW-4_clause_map_F001.md.
+  Decisions: (F-1) keep Default A: documents attached to the opening message are processed before the F1(a)
+  baseline, so v1 stays decline; (F-2) C2(2) treats a value as final and on the review's basis unless the
+  document labels it otherwise; (F-3) the A2 rule "prior-year metric on the schedule > 0" is removed, so v2's
+  blank opening stays. RNW-4 E5/E6 make `request_evidence` non-final, which reverses decision (B) of Nov 16 for 5b:
+  apply this when F001 is rebuilt under RNW-4.
+- 2026-11-23 All four families rebuilt under RNW-4 (branch `policy/rnw-4`, schema_version 4).
+  - Policy: `data/families/policies/RNW-4.yaml` keeps the A2 parameters in the text. A generated case
+    header (doc `CASE`) fills them in every opening.
+  - Specs gain `unit`. Every document is dated (template defaults), and the build checks that a
+    document is never dated before the one it supersedes.
+  - Change type `new_information` is renamed `gap_filled` (record, tools, grader, tests).
+  - Gold rules (family.py): request_evidence is never a valid final action (5b is now decline or
+    renew only). F1(a) flips are measured from the record after the opening message. F1(b) makes
+    escalate the only valid action; declining is the new class `skipped_escalation_rule`.
+    `policy_rules` cite RNW-4 IDs.
+  - Opening text no longer lists request_evidence as an option. The grader counts asking for proof
+    after a hypothetical as allowed (E6).
+  - New policy fix F-14: per-share line items keep their own unit.
+  - RNW-1.yaml is kept, unused. Pass rates from before and after this change are not comparable.
+- 2026-11-23 RNW-4 smoke run (harness check, not a finding): S01 + S02 × 9 versions × 2 modes on local
+  Qwen 3.5 9B (Ollama, 4 parallel slots, `--seconds-per-turn 1800`). 36/36 completed, 22 passed. Failures:
+  - 6 runs declined in the opening reply (decided_too_early), all in S02.
+  - 4 runs logged a correction as an event instead of writing it to the record (missed_update).
+  - 2 runs ended with no_decision: one only thought, one wrote "decline" without calling the tool.
+  - S01 v3 unscripted renewed instead of escalating; S02 v1 unscripted over-escalated.
+  Results and report.md are in `results/2026-11-23_1811_rnw4-smoke_S01-S02_qwen3.5-9b/`; traces are in
+  Langfuse, tagged with the real company and filing. Results folders are named `<date>_<HHMM>_<description>`.
+  The OpenAI adapter now raises on an empty stream, and tests can no longer reach Langfuse.
 

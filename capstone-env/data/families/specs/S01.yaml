@@ -11,6 +11,7 @@ selection:
   waived_checks: {}
 template: growth_v1
 figure_basis: reported
+unit: $ millions  # the page does not state the unit; AON's 10-K reports segment figures in millions
 figure_note: Reported segment results (risk and insurance brokerage services, 2007-2009).
 
 borrower: Borrower C
@@ -23,7 +24,7 @@ forbidden_terms: ["aon", "benfield", "cananwill"]
 hidden_rows: [3]
 
 policy:
-  id: RNW-1
+  id: RNW-4
   threshold: 0.01
   metric: segment revenue
 

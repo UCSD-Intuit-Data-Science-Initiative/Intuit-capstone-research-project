@@ -100,6 +100,16 @@ def test_each_event_type_becomes_the_right_observation():
     assert sum(kind == "end" for kind, _ in client.calls) == 3
 
 
+def test_the_models_thinking_reaches_langfuse_with_its_reply():
+    trace = {**TRACE, "events": [{**TRACE["events"][1], "reasoning": "Growth is below the threshold."}]}
+    client, _ = exported(trace)
+    [gen] = [kw for kind, kw in client.calls if kind == "start_observation"]
+    assert gen["output"]["reasoning"] == "Growth is below the threshold."
+    client, _ = exported()                                  # no thinking recorded: no empty field
+    gen = next(kw for kind, kw in client.calls if kind == "start_observation")
+    assert "reasoning" not in gen["output"]
+
+
 def test_unknown_event_types_keep_their_fields():
     client, _ = exported()
     record = next(kw for kind, kw in client.calls if kind == "create_event" and kw["name"].endswith("record_write"))
@@ -194,3 +204,23 @@ def test_run_with_langfuse_but_no_keys_still_completes(tmp_path, monkeypatch, ca
     printed = capsys.readouterr().out
     assert code == 0 and "langfuse: not sent" in printed
     assert len(list((tmp_path / "exp" / "traces").glob("*.json"))) == 2
+
+
+def test_credit_runs_carry_the_real_source_as_tags_and_metadata(tmp_path):
+    """The agent sees "Borrower C"; Langfuse shows teammates the real company and filing."""
+    (tmp_path / "data/families/specs").mkdir(parents=True)
+    (tmp_path / "data/families/specs/S09.yaml").write_text('page_renames: [["benfield", "Acquired Broker"]]\n')
+    fam = tmp_path / "data/families/smoke/S09/family.json"
+    fam.parent.mkdir(parents=True)
+    fam.write_text(json.dumps({"family_id": "S09", "borrower": "Borrower C", "policy": {"id": "RNW-4"},
+                               "provenance": {"spec": "data/families/specs/S09.yaml"},
+                               "source": {"company": "AON", "id": "Single_AON/2009/page_46.pdf-3",
+                                          "year": "2009", "dataset": "ConvFinQA"}}))
+    trace = {"env": "credit_renewal", "case_file": "data/families/smoke/S09/family.json", "case_id": "S09",
+             "status": "completed"}
+    source = observe.source_info(trace, root=tmp_path)
+    assert source["company"] == "AON" and source["renames"] == {"benfield": "Acquired Broker"}
+    tags = observe.trace_tags(trace, source)
+    assert {"company:AON", "source:Single_AON/2009/page_46.pdf-3", "borrower:Borrower C", "policy:RNW-4"} <= set(tags)
+    assert observe.source_info({**trace, "env": "toy_invoice"}, root=tmp_path) == {}
+    assert observe.source_info({**trace, "case_file": "missing.json"}, root=tmp_path) == {}

@@ -172,6 +172,14 @@ gold rule tags move from P-ids to the new ids (E3, F1, O1-O5…); correction doc
 (C2 requires id, issuer and date); facts gain unit/period/how-entered (G1); "gap filled" naming vs
 `new_information`. The harness needs no change if rules 1-3 above hold.
 
+**Done for RNW-4 instead (2026-11-23, branch `policy/rnw-4`).** The specs now use RNW-4
+(`data/families/policies/RNW-4.yaml`, text in `docs/policy/RNW-4.md`). Gold tags cite RNW-4 clause IDs.
+Every document is dated, and each opening carries a case header (doc `CASE`) filling the A2 parameters.
+The change type is renamed `gap_filled`. `request_evidence` is never a final action, and growth that
+can't be computed at the decision means escalate (`skipped_escalation_rule` when declined).
+Not done: withdrawals (C2A, O6) need an `update_record` mode the tools don't have yet, and no
+family tests O6-O9 or F1(b) at the final decision.
+
 ## Open questions
 
 - Which model for PR 4, and who adds the keys (model + Langfuse) to `capstone-env/.env`.
