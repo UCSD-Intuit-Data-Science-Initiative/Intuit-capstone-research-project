@@ -138,11 +138,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 1 if counts["error"] else 0
 
 
-def _send_to_langfuse(paths: list) -> int:
-    """Copy saved traces to Langfuse; the trace files stay the official record."""
+def _send_to_langfuse(paths: list, scores_only: bool = False) -> int:
+    """Copy saved traces (and their grades, as scores) to Langfuse; the trace files stay the official record."""
     from .observe import ObserveError, export_runs
     try:
-        export_runs(paths)
+        export_runs(paths, scores_only=scores_only)
     except ObserveError as exc:
         print(f"langfuse: not sent ({exc})")
         return 1
@@ -150,7 +150,7 @@ def _send_to_langfuse(paths: list) -> int:
 
 
 def cmd_langfuse(args: argparse.Namespace) -> int:
-    return _send_to_langfuse(args.paths)
+    return _send_to_langfuse(args.paths, scores_only=args.scores_only)
 
 
 def cmd_run_families(args: argparse.Namespace) -> int:
@@ -368,6 +368,8 @@ def main(argv: list[str] | None = None) -> int:
 
     lf = sub.add_parser("langfuse", help="copy saved traces to Langfuse for browsing")
     lf.add_argument("paths", nargs="+", help="experiment folders, trace folders or trace files")
+    lf.add_argument("--scores-only", action="store_true",
+                    help="only send the grader's scores (labels/), for runs already in Langfuse")
     lf.set_defaults(func=cmd_langfuse)
 
     s = sub.add_parser("score", help="regrade saved traces and rewrite runs.csv / summary.csv")

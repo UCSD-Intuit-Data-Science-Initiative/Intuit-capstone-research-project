@@ -69,6 +69,9 @@ class FakeClient:
     def start_as_current_observation(self, **kw):
         return FakeObs(self.calls, "start_as_current_observation", kw)
 
+    def create_score(self, **kw):
+        self.calls.append(("create_score", kw))
+
     def flush(self):
         self.flushed += 1
 
@@ -81,10 +84,28 @@ def fake_propagate(calls):
     return propagate
 
 
-def exported(trace=TRACE, experiment="exp1"):
+GRADE = {
+    "run_id": TRACE["run_id"], "family_id": "F001", "version": "3", "version_type": TRACE["case_type"],
+    "mode": "unscripted", "decision": "over_escalated", "passed": False, "attempted_invalid_changes": 2,
+    "accepted_invalid_changes": 1, "final_record_failures": ["wrong_change_type_at_end"], "max_severity": 2,
+    "family_changed": False, "note": "",
+    "labels": [
+        {"label": "over_escalated", "group": "decision", "turn": 2, "severity": 1, "note": "escalate; acceptable: renew"},
+        {"label": "correct_update", "group": "record", "turn": 1, "severity": 0, "note": "ok"},
+        {"label": "wrong_change_type_at_end", "group": "record", "turn": None, "severity": 2,
+         "note": "x is recorded as restatement; expected gap_filled"},
+    ],
+}
+
+
+def exported(trace=TRACE, experiment="exp1", grade=None):
     client = FakeClient()
-    trace_id = observe.export_trace(trace, client, experiment, fake_propagate(client.calls))
+    trace_id = observe.export_trace(trace, client, experiment, fake_propagate(client.calls), grade)
     return client, trace_id
+
+
+def scores_sent(client):
+    return [kw for kind, kw in client.calls if kind == "create_score"]
 
 
 def test_each_event_type_becomes_the_right_observation():
@@ -136,8 +157,9 @@ def test_an_errored_run_is_marked_as_an_error():
 
 def test_our_calls_match_the_installed_langfuse_api():
     langfuse = pytest.importorskip("langfuse")
-    client, _ = exported()
-    real = {"start_observation": langfuse.LangfuseSpan.start_observation,
+    client, _ = exported(grade=GRADE)
+    real = {"create_score": langfuse.Langfuse.create_score,
+            "start_observation": langfuse.LangfuseSpan.start_observation,
             "create_event": langfuse.LangfuseSpan.create_event, "update": langfuse.LangfuseSpan.update,
             "end": langfuse.LangfuseSpan.end,
             "start_as_current_observation": langfuse.Langfuse.start_as_current_observation,
@@ -145,6 +167,7 @@ def test_our_calls_match_the_installed_langfuse_api():
     for kind, kw in client.calls:
         fn = real[kind]
         args = () if kind in ("propagate", "create_trace_id") else (None,)
+        assert kind != "create_score" or kw["data_type"] in ("NUMERIC", "CATEGORICAL", "BOOLEAN")
         inspect.signature(fn).bind(*args, **kw)          # raises TypeError on an unknown argument
 
 
@@ -224,3 +247,76 @@ def test_credit_runs_carry_the_real_source_as_tags_and_metadata(tmp_path):
     assert {"company:AON", "source:Single_AON/2009/page_46.pdf-3", "borrower:Borrower C", "policy:RNW-4"} <= set(tags)
     assert observe.source_info({**trace, "env": "toy_invoice"}, root=tmp_path) == {}
     assert observe.source_info({**trace, "case_file": "missing.json"}, root=tmp_path) == {}
+
+
+def test_the_grade_becomes_scores_on_the_runs_trace():
+    client, trace_id = exported(grade=GRADE)
+    scores = {(s["name"], s["value"]): s for s in scores_sent(client)}
+    assert all(s["trace_id"] == trace_id for s in scores.values())
+    assert scores[("passed", 0.0)]["data_type"] == "BOOLEAN"
+    assert scores[("passed", 0.0)]["comment"] == "over_escalated, wrong_change_type_at_end"
+    assert scores[("decision", "over_escalated")]["comment"] == "escalate; acceptable: renew"
+    assert scores[("max_severity", 2.0)]["data_type"] == "NUMERIC"
+    assert scores[("final_record_failures", 1.0)]["comment"] == "wrong_change_type_at_end"
+    assert scores[("invalid_changes_accepted", 1.0)]["comment"] == "2 attempted"
+    problems = [s for s in scores_sent(client) if s["name"] == "problem"]
+    assert [p["value"] for p in problems] == ["over_escalated", "wrong_change_type_at_end"]   # severity 0 left out
+    assert problems[1]["comment"].startswith("end of run: ") and problems[0]["comment"].startswith("turn 2: ")
+
+
+def test_score_ids_are_stable_so_resending_updates_instead_of_duplicating():
+    first, second = exported(grade=GRADE)[0], exported(grade=GRADE)[0]
+    ids = [s["score_id"] for s in scores_sent(first)]
+    assert ids == [s["score_id"] for s in scores_sent(second)] and len(set(ids)) == len(ids)
+    other = exported(experiment="exp2", grade=GRADE)[0]
+    assert not set(ids) & {s["score_id"] for s in scores_sent(other)}
+
+
+def test_a_passing_run_says_so():
+    grade = {**GRADE, "decision": "valid", "passed": True, "final_record_failures": [], "max_severity": 0,
+             "accepted_invalid_changes": 0, "labels": [{"label": "valid", "group": "decision", "turn": 3,
+                                                       "severity": 0, "note": "renew; acceptable: renew"}]}
+    scores = scores_sent(exported(grade=grade)[0])
+    assert [s["name"] for s in scores] == ["passed", "decision", "max_severity", "final_record_failures",
+                                           "invalid_changes_accepted"]
+    assert scores[0]["value"] == 1.0 and scores[0]["comment"] == "no problems"
+    assert "comment" not in scores[3]      # None values are not sent
+
+
+def test_ungraded_runs_send_no_scores():
+    assert scores_sent(exported()[0]) == []
+
+
+def write_graded_experiment(tmp_path: Path) -> Path:
+    out = write_experiment(tmp_path)
+    (out / "labels").mkdir()
+    (out / "labels" / "run0.json").write_text(json.dumps({**GRADE, "run_id": "run0"}))
+    return out
+
+
+def test_export_runs_attaches_grades_from_labels(tmp_path):
+    out = write_graded_experiment(tmp_path)
+    client, lines = FakeClient(), []
+    observe.export_runs([out], client, lines.append, fake_propagate([]))
+    graded_id = hashlib.md5(b"exp1/run0").hexdigest()
+    assert {s["trace_id"] for s in scores_sent(client)} == {graded_id}
+    assert lines[0] == "langfuse: sent run0 with 7 scores" and lines[1] == "langfuse: sent run1"
+
+
+def test_scores_only_adds_scores_to_runs_already_sent(tmp_path):
+    out = write_graded_experiment(tmp_path)
+    client, lines = FakeClient(), []
+    assert observe.export_runs([out], client, lines.append, fake_propagate([]), scores_only=True) == 1
+    kinds = {kind for kind, _ in client.calls}
+    assert kinds == {"create_trace_id", "create_score"}          # the trace itself is not sent again
+    assert {s["trace_id"] for s in scores_sent(client)} == {hashlib.md5(b"exp1/run0").hexdigest()}
+    assert "langfuse: skipped run1 (not graded)" in lines and lines[-1] == "langfuse: 1 runs scored"
+    with pytest.raises(observe.ObserveError, match="no grades"):
+        observe.export_runs([write_experiment(tmp_path / "ungraded")], client, scores_only=True)
+
+
+def test_cli_scores_only_flag_reaches_the_export(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(observe, "export_runs", lambda paths, **kw: seen.update(kw) or 0)
+    assert cli.main(["langfuse", str(tmp_path), "--scores-only"]) == 0
+    assert seen == {"scores_only": True}
