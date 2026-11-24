@@ -94,6 +94,11 @@ def _num(v: str | None) -> float:
         return 0.0
 
 
+def _run_key(row: dict) -> str:
+    """A run's identity in a table row: run_uid, or run_id for experiments graded before run_uid existed."""
+    return row.get("run_uid") or row["run_id"]
+
+
 def render_report(out_dir: str | Path, title: str | None = None) -> str:
     """A Markdown results page from runs.csv, labels.csv and experiment.json."""
     out_dir = Path(out_dir)
@@ -141,23 +146,76 @@ def render_report(out_dir: str | Path, title: str | None = None) -> str:
           f"- Runs whose final record was wrong: {sum(bool(r.get('check_final_record_failures')) for r in done)}", ""]
 
     problems = [l for l in labels if _num(l.get("severity")) > 0]
-    L += ["## Problem labels", "", "| Label | Group | Runs | Max severity |", "|---|---|---:|---:|"]
+    L += ["## Problem labels", "", "| Label | Group | Runs | Max severity | Detail (runs) |", "|---|---|---:|---:|---|"]
     runs_with = defaultdict(set)
     sev = defaultdict(float)
     group = {}
+    details: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
     for l in problems:
-        runs_with[l["label"]].add(l["run_id"])
+        runs_with[l["label"]].add(_run_key(l))
         sev[l["label"]] = max(sev[l["label"]], _num(l["severity"]))
         group[l["label"]] = l["group"]
+        if l.get("detail"):
+            details[l["label"]][l["detail"]].add(_run_key(l))
     for name in sorted(runs_with, key=lambda k: (-len(runs_with[k]), k)):
-        L.append(f"| {name} | {group[name]} | {len(runs_with[name])} | {int(sev[name])} |")
+        split = "; ".join(f"{k} {len(v)}" for k, v in sorted(details[name].items(), key=lambda kv: (-len(kv[1]), kv[0])))
+        L.append(f"| {name} | {group[name]} | {len(runs_with[name])} | {int(sev[name])} | {split or '-'} |")
     if not problems:
-        L.append("| none | | | |")
+        L.append("| none | | | | |")
 
-    L += ["", "## Runs", "", "| Run | Passed | Decision | Problem labels | Tokens in/out | Cost |",
-          "|---|---|---|---|---:|---:|"]
+    # Primary problem per run: the rule is in credit/grader.py (earliest turn, observed before not done, severity).
+    by_label_id = {l["label_id"]: l for l in labels if l.get("label_id")}
+
+    def primary_text(r: dict) -> str:
+        name = r.get("check_primary_label")
+        if not name:
+            return "-"
+        detail = (by_label_id.get(r.get("check_primary_label_id")) or {}).get("detail")
+        return f"{name} ({detail})" if detail else name
+
+    L += ["", "## Primary problem per run", "",
+          "Each run is counted once, under its primary problem: the problem (severity above 0) with the earliest "
+          "turn. In the same turn, something the agent did comes before something it never did, then the higher "
+          "severity. This is a fixed counting rule, not proof that it caused the later problems.", ""]
+    if not any("check_primary_label" in r for r in done):
+        L.append("Not available: this experiment was graded before primary problems existed "
+                 f"(regrade with `python -m capstone.cli grade {out_dir}`, then `score`).")
+    else:
+        L += ["| Primary problem | Runs | Of which failed |", "|---|---:|---:|"]
+        rows = Counter()
+        failed = Counter()
+        for r in done:
+            key = "not graded" if r.get("check_error") else (primary_text(r) if r.get("check_primary_label") else "no problem")
+            rows[key] += 1
+            failed[key] += r["passed"] != "True"
+        for key, n in sorted(rows.items(), key=lambda kv: (kv[0] in ("no problem", "not graded"), -kv[1], kv[0])):
+            L.append(f"| {key} | {n} | {failed[key]} |")
+
+    L += ["", "## Problems that occur together", "",
+          "For each primary problem, the other problem labels that came with it, and in how many runs.", ""]
+    per_run: dict[str, dict[str, list]] = defaultdict(lambda: {"primary": [], "secondary": []})
+    for l in problems:
+        if l.get("role") in ("primary", "secondary"):
+            per_run[_run_key(l)][l["role"]].append(l["label"])
+    if not per_run:
+        L.append("Not available: no label has a role (graded before primary problems existed), or there are no problems.")
+    else:
+        L += ["| Primary problem | Came with | Runs |", "|---|---|---:|"]
+        pairs, totals = Counter(), Counter()
+        for roles in per_run.values():
+            for p in set(roles["primary"]):
+                totals[p] += 1
+                for s in set(roles["secondary"]) or {None}:
+                    pairs[(p, s)] += 1
+        for (p, s), n in sorted(pairs.items(), key=lambda kv: (-totals[kv[0][0]], kv[0][0], kv[0][1] is None, -kv[1], kv[0][1] or "")):
+            came = "(nothing else)" if s is None else f"{s} (same label again)" if s == p else s
+            L.append(f"| {p} | {came} | {n} |")
+
+    L += ["", "## Runs", "", "| Run uid | Run | Passed | Decision | Primary problem | Problem labels | Tokens in/out | Cost |",
+          "|---|---|---|---|---|---|---:|---:|"]
     for r in sorted(done, key=lambda r: r["run_id"]):
-        L.append(f"| `{r['run_id']}` | {r['passed']} | {r.get('check_decision')} | {r.get('check_labels') or '-'} | "
+        L.append(f"| `{r.get('run_uid') or '-'}` | `{r['run_id']}` | {r['passed']} | {r.get('check_decision')} | "
+                 f"{primary_text(r)} | {r.get('check_labels') or '-'} | "
                  f"{int(_num(r.get('tokens_in'))):,}/{int(_num(r.get('tokens_out'))):,} | ${_num(r.get('cost_usd')):.3f} |")
     L += ["", "Traces: `" + str(out_dir / "traces") + "` (git-ignored). Noticing and consistency are not "
           "labelled by code; read the traces (`python -m capstone.cli show <trace>`) for those.", ""]

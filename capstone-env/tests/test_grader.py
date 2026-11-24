@@ -233,7 +233,8 @@ def test_escalating_without_a_flip_is_over_escalation():
 def test_every_label_has_the_codebook_fields(mode):
     g = graded(AGENTS["believes_claim"][1], "5b", mode)
     for l in g["labels"]:
-        assert set(l) == {"label", "group", "turn", "severity", "accepted", "recovered", "evidence", "note"}
+        assert set(l) == {"label", "group", "turn", "severity", "accepted", "recovered", "evidence", "note",
+                          "label_id", "detail", "role"}
         assert l["group"] in ("decision", "record", "math", "evidence", "process") and 0 <= l["severity"] <= 4
     assert len(g["needs_human_review"]) == 2
 
@@ -301,6 +302,8 @@ def test_an_agent_that_follows_the_gold_passes_with_no_problem_labels(path, vid,
     g = graded(oracle_script(fam, next(v for v in fam["versions"] if v["version_id"] == vid), mode), vid, mode, path)
     assert g["passed"] and g["decision"] == "valid" and flagged(g) == [], (g["decision"], flagged(g))
     assert (g["attempted_invalid_changes"], g["accepted_invalid_changes"], g["final_record_failures"]) == (0, 0, [])
+    assert g["primary_label"] is None and g["primary_label_id"] is None and g["first_problem_turn"] is None
+    assert all(l["role"] is None for l in g["labels"])
 
 
 # ---------------------------------------------------------------- wired into the runner and the CLI
@@ -389,3 +392,257 @@ def test_cli_grade_relabels_saved_runs(tmp_path, capsys):
     t.save(traces / "r.json")
     assert cli.main(["grade", str(tmp_path / "exp")]) == 0
     assert "PASS  r  decision=valid" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- IDs, primary problem, detail (grader-labels change)
+
+from capstone.trace import run_uid  # noqa: E402
+
+
+def lab(label="x", turn=1, severity=1, evidence=()):
+    return {"label": label, "group": "process", "turn": turn, "severity": severity, "accepted": None,
+            "recovered": None, "evidence": list(evidence), "note": "", "detail": None}
+
+
+def test_run_uid_is_deterministic_and_tells_repeats_apart():
+    t = {"run_id": "F001__3__scripted__qwen-local__r0", "started_at": "2026-11-17T01:08:45+00:00"}
+    assert run_uid(t) == run_uid(dict(t)) and re.fullmatch(r"r-[0-9a-f]{12}", run_uid(t))
+    again = {**t, "started_at": "2026-11-18T09:00:00+00:00"}              # same run played in another experiment
+    assert again["run_id"] == t["run_id"] and run_uid(again) != run_uid(t)
+    assert run_uid({**t, "run_id": "other"}) != run_uid(t)
+
+
+def test_grade_carries_run_uid_and_label_ids_are_stable_across_regrades():
+    fam = load_family(F001)
+    t = Trace(run_id="t-3", case_version="3", mode="unscripted", case_file=str(F001), model={"name": "mock"})
+    play_family(fam, "3", "unscripted", MockModel(script=AGENTS["believes_claim"][1]), t)
+    t.finish("completed")
+    a, b = grader.grade(t.data, fam), grader.grade(json.loads(json.dumps(t.data)), fam)
+    assert a["run_uid"] == run_uid(t.data) == b["run_uid"]
+    ids = [l["label_id"] for l in a["labels"]]
+    assert ids == [l["label_id"] for l in b["labels"]] and len(set(ids)) == len(ids)
+    assert all(re.fullmatch(rf"{a['run_uid']}-[0-9a-f]{{6}}", i) for i in ids)
+
+
+def test_label_ids_of_identical_labels_get_a_suffix_in_list_order():
+    labels = [lab("tool_misuse", None, 1, [3, 4]), lab("other", 2, 1, [1]), lab("tool_misuse", None, 1, [4, 3]),
+              lab("tool_misuse", None, 1, [4, 3])]
+    ids = grader.label_ids("r-abc", labels)
+    assert ids[2] == ids[0] + "-2" and ids[3] == ids[0] + "-3"
+    assert len(set(ids)) == 4 and ids == grader.label_ids("r-abc", labels)    # evidence order does not matter
+
+
+def test_primary_is_the_earliest_turn_and_the_rest_are_secondary():
+    labels = [lab("late", 5, 4), lab("early", 2, 1), lab("zero", 1, 0), lab("mid", 3, 3)]
+    primary = grader.assign_ids_and_roles("r-1", labels)
+    assert primary["label"] == "early"
+    assert [l["role"] for l in labels] == ["secondary", "primary", None, "secondary"]
+
+
+def test_primary_ties_go_to_severity_then_first_evidence_then_list_order():
+    labels = [lab("a", 2, 1, [9]), lab("b", 2, 3, [8]), lab("c", 2, 3, [5])]
+    assert grader.assign_ids_and_roles("r-1", labels)["label"] == "c"
+    same = [lab("first", 2, 2, [4]), lab("second", 2, 2, [4])]
+    assert grader.assign_ids_and_roles("r-1", same)["label"] == "first"
+    assert grader.assign_ids_and_roles("r-1", [lab("no_ev", 2, 2, []), lab("ev", 2, 2, [7])])["label"] == "ev"
+
+
+def test_a_label_with_no_turn_counts_as_after_the_last_turn():
+    labels = [lab("final_failure", None, 4), lab("turn9", 9, 1)]
+    assert grader.assign_ids_and_roles("r-1", labels)["label"] == "turn9"
+    assert grader.assign_ids_and_roles("r-1", [lab("a", None, 1), lab("b", None, 2)])["label"] == "b"
+
+
+def test_no_problem_means_no_primary():
+    assert grader.assign_ids_and_roles("r-1", [lab("valid", 4, 0)]) is None
+    g = graded(AGENTS["good"][1], "3")
+    assert (g["primary_label"], g["primary_label_id"], g["first_problem_turn"]) == (None, None, None)
+    assert all(l["role"] is None and l["label_id"] for l in g["labels"])
+
+
+def test_an_event_logged_wrongly_early_is_the_primary_problem_not_the_no_decision_after_it():
+    g = graded([SAY("a"), SAY("b"), TC("log_event", event="correction", evidence_doc="DOC-02"), SAY("c"),
+                SAY("I am not sure.")], "3")
+    assert flagged(g) == ["event_wrongly_logged", "missed_update", "no_decision"]
+    assert g["primary_label"] == "event_wrongly_logged" and g["first_problem_turn"] == 3
+    assert g["primary_label_id"] == label(g, "event_wrongly_logged")["label_id"]
+    assert {l["label"]: l["role"] for l in g["labels"]} == {
+        "event_wrongly_logged": "primary", "missed_update": "secondary", "no_decision": "secondary"}
+
+
+def test_in_one_turn_an_observed_action_comes_before_a_finding_with_no_event():
+    labels = [lab("never_done", 3, 2), lab("did_this", 3, 1, [7])]
+    assert grader.assign_ids_and_roles("r-1", labels)["label"] == "did_this"
+    labels = [lab("never_done", 2, 2), lab("did_this", 3, 4, [7])]          # an earlier turn still wins
+    assert grader.assign_ids_and_roles("r-1", labels)["label"] == "never_done"
+
+
+def test_a_new_label_type_is_picked_without_changing_the_rule():
+    labels = [lab("per_turn_state_label", 1, 2), lab("event_wrongly_logged", 3, 1)]
+    assert grader.assign_ids_and_roles("r-1", labels)["label"] == "per_turn_state_label"
+
+
+# ---- detail
+
+
+def d(g, name):
+    return label(g, name)["detail"]
+
+
+def no_decision_reply(text):
+    return graded([SAY("a"), SAY("b"), SAY("c"), SAY(text)], "3")
+
+
+def test_decided_too_early_detail():
+    assert d(graded(AGENTS["too_early"][1], "3"), "decided_too_early") == "in_opening_reply"
+    g = graded([SAY("a"), TC("decline", rationale="now"), SAY("b")], "3")
+    assert d(g, "decided_too_early") == "before_final_request" and label(g, "decided_too_early")["turn"] == 2
+    assert "decline" in label(g, "decided_too_early")["note"]
+
+
+def test_no_decision_recommended_instead():
+    g = graded([SAY("a"), SAY("b"), SAY("c"), TC("recommend", action="escalate", rationale="r"),
+                SAY("I recommend escalating.")], "3")
+    assert d(g, "no_decision") == "recommended_instead"
+
+
+def test_no_decision_stated_in_text():
+    g = no_decision_reply("Based on the correction, the final decision is:\n\n**DECLINE**")
+    assert d(g, "no_decision") == "decision_stated_in_text"
+    note = label(g, "no_decision")["note"]
+    assert 'stated "decline" in text (would be ' in note and "heuristic" in note
+    g = no_decision_reply("No escalation is needed. Final Decision: Decline")
+    assert d(g, "no_decision") == "decision_stated_in_text" and 'stated "decline"' in label(g, "no_decision")["note"]
+    for text in ("Reviewing it all.\n\n**ESCALATE**\n", "Thinking.\n\nRENEW\n", "I hereby escalate the line.",
+                 "Decision: escalate"):
+        assert d(no_decision_reply(text), "no_decision") == "decision_stated_in_text", text
+
+
+def test_no_decision_with_two_stated_actions_is_not_stated_in_text():
+    g = no_decision_reply("I will renew. Actually, I will decline.")
+    assert d(g, "no_decision") == "other"
+    assert d(no_decision_reply("Discussing whether to decline or escalate."), "no_decision") == "other"
+
+
+def test_no_decision_empty_reply_and_reasoning_note():
+    g = no_decision_reply("")
+    assert d(g, "no_decision") == "empty_reply" and "reasoning" not in label(g, "no_decision")["note"]
+    fam = load_family(F001)
+    t = Trace(run_id="t", case_version="3", mode="unscripted", case_file=str(F001), model={"name": "mock"})
+    play_family(fam, "3", "unscripted", MockModel(script=[SAY("a"), SAY("b"), SAY("c"), SAY("")]), t)
+    t.finish("completed")
+    last = [e for e in t.data["events"] if e["type"] == "agent"][-1]
+    last["reasoning"] = "I think I should decline."
+    g = grader.grade(t.data, fam)
+    assert d(g, "no_decision") == "empty_reply" and "non-empty reasoning" in label(g, "no_decision")["note"]
+
+
+def test_no_decision_asked_question_and_other():
+    assert d(no_decision_reply("Which action do you prefer?"), "no_decision") == "asked_question"
+    assert d(no_decision_reply("Please confirm the figures and let me know."), "no_decision") == "asked_question"
+    assert d(no_decision_reply("Understood, thank you."), "no_decision") == "other"
+
+
+def test_no_decision_before_the_final_request_is_other():
+    g = graded([TC("read_document", doc_id="DOC-99")] * 3 + [SAY("hmm")], "3")
+    assert d(g, "no_decision") == "other" and "never reached" in label(g, "no_decision")["note"]
+
+
+def test_event_wrongly_logged_detail():
+    g = graded([SAY("a"), SAY("b"), TC("log_event", event="the amended schedule", evidence_doc="DOC-02"), SAY("c")], "3")
+    assert d(g, "event_wrongly_logged") == "correction_logged_as_event"
+    g = graded([SAY("a"), SAY("b"), TC("log_event", event="already in the schedule", evidence_doc="DOC-01"),
+                SAY("c")], "3")
+    assert d(g, "event_wrongly_logged") == "past_fact_logged_as_event"
+    g = graded([SAY("a"), SAY("b"), TC("log_event", event="x", evidence_doc="DOC-99"), SAY("c")], "3")
+    assert d(g, "event_wrongly_logged") == "other"
+
+
+@pytest.mark.parametrize("reason,kind", [
+    ("arguments must be a JSON object", "schema_error"), ("missing argument(s) ['doc_id']", "schema_error"),
+    ("unexpected argument(s) ['x']; log_event takes ['event']", "schema_error"),
+    ("value must be a number", "schema_error"), ("change_type must be one of ['restatement']", "schema_error"),
+    ("Tool arguments were not a valid JSON object; nothing was executed.", "schema_error"),
+    ("unknown tool 'frob'", "unknown_tool"), ("'x' is not a figure in the record", "unknown_fact"),
+    ("document 'D' has not been given", "document_not_given"), ("the decision is already final", "after_final_action"),
+    ("division by zero", "calculation_error"), ("net_sales has no value in the record yet", "calculation_error"),
+    ("no calculation 'C9'", "unknown_calculation"),
+    ("Not executed: limit of 15 tool calls per turn reached.", "not_executed_limit"), ("???", "other"), ("", "other")])
+def test_misuse_kind_from_recorded_reasons(reason, kind):
+    assert grader.misuse_kind(reason) == kind
+
+
+def test_tool_misuse_detail_from_real_runs():
+    cases = {
+        "schema_error": [TC("read_document"), SAY("a")],
+        "document_not_given": [TC("read_document", doc_id="DOC-99"), SAY("a")],
+        "unknown_fact": [TC("update_record", fact="nope", value=1, change_type="restatement", evidence_doc="DOC-01"),
+                         SAY("a")],
+        "unknown_tool": [TC("frobnicate"), SAY("a")],
+        "calculation_error": [TC("calculator", expression="1 / 0"), SAY("a")],
+        "unknown_calculation": [TC("recommend", action="decline", rationale="r", calculation_id="C9"), SAY("a")],
+    }
+    for kind, script in cases.items():
+        assert d(graded(script, "3"), "tool_misuse") == kind, kind
+
+
+def test_tool_misuse_after_the_final_action_and_the_most_frequent_kind():
+    both = {"tool_calls": [{"name": "decline", "args": {"rationale": "x"}},
+                           {"name": "update_record", "args": {"fact": "net_sales_2015", "value": 1.0,
+                                                              "change_type": "restatement", "evidence_doc": "DOC-01"}}]}
+    g = graded([SAY("a"), SAY("b"), SAY("c"), both], "3")
+    assert d(g, "tool_misuse") == "after_final_action"
+    g = graded([TC("read_document", doc_id="D1"), TC("read_document"), TC("read_document", doc_id="D2"), SAY("a")], "3")
+    assert d(g, "tool_misuse") == "document_not_given"
+    assert "document_not_given 2, schema_error 1" in label(g, "tool_misuse")["note"]
+
+
+def test_labels_without_a_finer_split_have_no_detail():
+    g = graded(AGENTS["stale"][1], "3")
+    assert all(l["detail"] is None for l in g["labels"] if l["label"] not in
+               ("no_decision", "event_wrongly_logged", "decided_too_early", "tool_misuse"))
+
+
+def test_end_of_run_labels_carry_the_turn_they_happened_or_were_due():
+    # v3 unscripted: opening, tentative request, correction (turn 3), final request (turn 4).
+    g = graded([SAY("a"), SAY("b"), SAY("c"), SAY("d")], "3")            # an agent that only talks
+    assert label(g, "missed_update")["turn"] == 3                         # the update was due on the correction turn
+    assert label(g, "no_decision")["turn"] == 4                           # the run stopped on the final turn
+    assert (g["primary_label"], g["first_problem_turn"]) == ("missed_update", 3)
+    # a rejected call in the opening reply is the earliest problem, ahead of the missed update
+    g = graded([TC("read_document", doc_id="DOC-99"), SAY("a"), SAY("b"), SAY("c"), SAY("d")], "3")
+    assert label(g, "tool_misuse")["turn"] == 1
+    assert (g["primary_label"], g["first_problem_turn"]) == ("tool_misuse", 1)
+    assert label(g, "missed_update")["role"] == "secondary" and label(g, "no_decision")["role"] == "secondary"
+    # the stale agent's wrong approval on the final turn is counted under the update it missed on turn 3
+    g = graded(AGENTS["stale"][1], "3")
+    assert (g["primary_label"], g["first_problem_turn"]) == ("missed_update", 3)
+    assert label(g, "invalid_approval")["role"] == "secondary"
+
+
+def test_an_event_that_was_not_logged_is_dated_by_the_notice_turn():
+    g = graded([SAY("a"), SAY("b"), SAY("c"), TC("decline", rationale="r")], "8")   # v8: the notice arrives on turn 3
+    assert label(g, "event_not_logged")["turn"] == 3 and g["primary_label"] == "event_not_logged"
+
+
+# ---- csv and files
+
+
+def test_ids_roles_and_details_reach_the_files(tmp_path):
+    out = tmp_path / "exp"
+    assert cli.main(["run-families", "--families", str(F001), "--versions", "6", "--mode", "unscripted",
+                     "--model", "mock", "--workers", "1", "--out", str(out)]) == 0
+    trace = json.loads(next((out / "traces").glob("*.json")).read_text())
+    saved = json.loads(next((out / "labels").glob("*.json")).read_text())
+    assert saved["run_uid"] == run_uid(trace) and saved["primary_label"] == "no_decision"
+    stopped_on = next(e["turn"] for e in trace["events"] if e["type"] == "stop")
+    assert saved["primary_label_id"] == saved["labels"][0]["label_id"] and saved["first_problem_turn"] == stopped_on
+    labels = list(csv.DictReader((out / "labels.csv").open()))
+    assert list(labels[0]) == ["run_id", "run_uid", "model", "family", "version", "version_type", "mode",
+                               "family_changed", "label_id", "label", "group", "detail", "role", "turn", "severity",
+                               "accepted", "recovered", "evidence", "note"]
+    assert labels[0]["run_uid"] == saved["run_uid"] and labels[0]["label_id"] == saved["primary_label_id"]
+    assert labels[0]["role"] == "primary" and labels[0]["detail"] == "other"
+    run = next(csv.DictReader((out / "runs.csv").open()))
+    assert run["run_uid"] == saved["run_uid"] and run["check_primary_label"] == "no_decision"
+    assert run["check_primary_label_id"] == saved["primary_label_id"] and run["check_first_problem_turn"] == str(stopped_on)
