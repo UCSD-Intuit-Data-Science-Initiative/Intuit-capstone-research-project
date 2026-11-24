@@ -4,7 +4,7 @@
 tentative recommendations are stored as objects with the record version and the figures they
 used, so the grader can tell when reasoning was done on facts the record no longer holds.
 Facts may carry extra fields (unit, period, how they entered) so a richer policy (RNW-1-v2, G1)
-needs no change here.
+needs no change here. Change types follow RNW-4 G1 (restatement, gap_filled).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import copy
 from typing import Any
 
 FINAL_ACTIONS = ("renew", "decline", "escalate")
-CHANGE_TYPES = ("restatement", "new_information")
+CHANGE_TYPES = ("restatement", "gap_filled")
 
 
 class Record:

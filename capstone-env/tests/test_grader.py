@@ -103,7 +103,7 @@ def test_an_invalid_change_rejected_by_the_harness_counts_only_as_attempted():
 
 def test_wrong_change_type_and_wrong_source_are_told_apart():
     wrong_type = [SAY("a"), SAY("b"),
-                  TC("update_record", fact="net_sales_2015", value=45366, change_type="new_information",
+                  TC("update_record", fact="net_sales_2015", value=45366, change_type="gap_filled",
                      evidence_doc="DOC-02"), SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
     g = graded(wrong_type, "3")
     # right value and source, but the change log still calls the correction new information: a final failure
@@ -111,7 +111,7 @@ def test_wrong_change_type_and_wrong_source_are_told_apart():
     assert label(g, "wrong_change_type")["recovered"] is False
     assert g["final_record_failures"] == ["wrong_change_type_at_end"]
     fixed = [SAY("a"), SAY("b"),
-             TC("update_record", fact="net_sales_2015", value=45366, change_type="new_information", evidence_doc="DOC-02"),
+             TC("update_record", fact="net_sales_2015", value=45366, change_type="gap_filled", evidence_doc="DOC-02"),
              TC("update_record", fact="net_sales_2015", value=45366, change_type="restatement", evidence_doc="DOC-02"),
              SAY("c"), TC("escalate", rationale="flip"), SAY("d")]
     g = graded(fixed, "3")
@@ -183,12 +183,14 @@ FINAL_ASK = [SAY("a"), SAY("b"), TC("request_evidence", what="a document for the
 
 
 @pytest.mark.parametrize("path", [F001, S01], ids=["decline family", "renew family"])
-def test_asking_for_proof_instead_of_deciding_is_valid_in_5b(path):
-    """RNW-1 P4/P7: requesting evidence is an acceptable answer to the final-decision request in 5b."""
+def test_asking_for_proof_instead_of_deciding_is_an_unnecessary_block_in_5b(path):
+    """RNW-4 E5/E6: asking for proof after the claim is allowed, but at the final-decision request the
+    agent must take a final action; asking again there is an unnecessary block."""
     g = graded(FINAL_ASK, "5b", path=path)
-    assert g["decision"] == "valid" and g["passed"] and flagged(g) == []
-    assert [l["turn"] for l in g["labels"] if l["label"] == "asked_proof_needed"] == [3, 4]
-    assert label(g, "valid")["evidence"] and "request_evidence" in label(g, "valid")["note"]
+    assert g["decision"] == "unnecessary_block" and not g["passed"]
+    assert [l["turn"] for l in g["labels"] if l["label"] == "asked_proof_needed"] == [3]
+    assert [l["turn"] for l in g["labels"] if l["label"] == "asked_proof_not_needed"] == [4]
+    assert "request_evidence" in label(g, "unnecessary_block")["note"]
 
 
 def test_asking_for_proof_instead_of_deciding_elsewhere_is_an_unnecessary_block():

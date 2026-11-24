@@ -11,6 +11,7 @@ selection:
   prefilter_labels: false   # F001 was drawn before the allowed-label rule; it is logged as a check
 template: growth_v1
 figure_basis: unaudited_pro_forma
+unit: "$ millions, except per-share amounts (in $)"  # the page text says "( in millions )"
 figure_note: >-
   All figures are unaudited pro forma: they show the company as if the acquired business had
   been included for all of 2014 and 2015. They are not reported results. Policy rule P12 makes
@@ -25,8 +26,8 @@ page_renames:
 forbidden_terms: ["sikorsky", "lockheed", "rms"]
 hidden_rows: []
 
-policy:            # shared text in data/families/policies/RNW-1.yaml; this family fills it in
-  id: RNW-1
+policy:            # shared text in data/families/policies/RNW-4.yaml; this family fills it in
+  id: RNW-4
   threshold: 0.01
   metric: net sales
 

@@ -50,6 +50,7 @@ class Reply:
     stop_reason: str | None = None
     served_by: str | None = None  # model id the provider says answered
     provider_content: Any = None  # provider-native assistant content, replayed as-is
+    reasoning: str = ""  # the model's thinking as the provider returned it (trace only; never sent back)
 
 
 class Model(Protocol):
@@ -138,6 +139,7 @@ class AnthropicModel:
             stop_reason=final.stop_reason,
             served_by=final.model,
             provider_content=final.content,
+            reasoning="\n\n".join(getattr(b, "thinking", "") or "" for b in final.content if b.type == "thinking"),
         )
 
 
@@ -195,6 +197,7 @@ class OpenAIModel:
             kwargs["extra_body"] = {"usage": {"include": True}}
         start, first = time.perf_counter(), None
         text: list[str] = []
+        thinking: list[str] = []
         calls: dict[int, dict] = {}
         usage = finish = served_by = None
 
@@ -213,6 +216,8 @@ class OpenAIModel:
             reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
             if first is None and (delta.content or delta.tool_calls or reasoning):
                 first = time.perf_counter()
+            if reasoning:
+                thinking.append(reasoning)
             if delta.content:
                 text.append(delta.content)
             for tc in delta.tool_calls or []:
@@ -223,6 +228,11 @@ class OpenAIModel:
                     slot["args"] += tc.function.arguments or ""
             finish = choice.finish_reason or finish
 
+        if first is None and not text and not calls:
+            # The server closed the stream without a single token (a server that went away, an error
+            # sent inside the stream): an infrastructure failure, not the model's answer. Raising lets
+            # the runner retry the run instead of grading an empty reply.
+            raise RuntimeError(f"model {self.name!r}: the server returned an empty stream (finish={finish!r})")
         tool_calls = []
         for i in sorted(calls):
             args, raw = parse_tool_args(calls[i]["args"])
@@ -231,7 +241,7 @@ class OpenAIModel:
                   tokens_out=getattr(usage, "completion_tokens", 0) or 0,
                   cost_usd=getattr(usage, "cost", None) if self.report_cost else None)
         return Reply(text="".join(text), tool_calls=tool_calls, stop_reason=finish, served_by=served_by,
-                     usage=_finish_usage(u, start, first, self.price))
+                     usage=_finish_usage(u, start, first, self.price), reasoning="".join(thinking))
 
 
 # ---- Mock (no API key) ----------------------------------------------------------

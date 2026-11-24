@@ -15,6 +15,11 @@ Each run becomes one Langfuse trace (deterministic id, so re-sending a run reuse
   anything else                events, with the event's fields as metadata (new event types
                                added later, such as record writes, still show up)
 Times in Langfuse are the export time; the run's own timings stay in each step's metadata.
+
+Credit runs also carry the real source behind the renamed borrower (team-only: the agent never saw
+it), read from the family file the run was played with: tags ``company:<ticker>``,
+``source:<ConvFinQA id>``, ``borrower:<name shown to the agent>``, ``policy:<id>``, and the same plus
+the spec's renames (e.g. "sikorsky" -> "Acquired Business") in the trace metadata under ``source``.
 """
 
 from __future__ import annotations
@@ -60,12 +65,44 @@ def _json_or_text(value: Any) -> Any:
     return value
 
 
-def trace_tags(trace: dict) -> list[str]:
+def source_info(trace: dict, root: Path | None = None) -> dict:
+    """The real company and filing behind a credit run's renamed borrower, from its family file
+    (and the spec's renames, if the spec is found); empty for other runs or a missing file."""
+    case_file = trace.get("case_file")
+    if trace.get("env") != "credit_renewal" or not case_file:
+        return {}
+    root = root or Path.cwd()
+    path = Path(case_file) if Path(case_file).is_absolute() else root / case_file
+    try:
+        family = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    src = family.get("source") or {}
+    info = {"company": src.get("company"), "source_id": src.get("id"), "filing_year": src.get("year"),
+            "dataset": src.get("dataset"), "borrower_shown": family.get("borrower"),
+            "family_id": family.get("family_id"), "policy_id": (family.get("policy") or {}).get("id")}
+    spec_path = (family.get("provenance") or {}).get("spec")
+    if spec_path:
+        import yaml
+        try:
+            spec = yaml.safe_load((root / spec_path).read_text()) or {}
+            info["renames"] = {old: new for old, new in spec.get("page_renames", [])}
+        except (OSError, ValueError, yaml.YAMLError):
+            pass
+    return {k: v for k, v in info.items() if v not in (None, "", {})}
+
+
+def trace_tags(trace: dict, source: dict | None = None) -> list[str]:
     tags = [f"{k}:{trace[k]}" for k in TAG_FIELDS if trace.get(k) not in (None, "")]
     model = trace.get("model") or {}
     if model.get("name"):
         tags.append(f"model:{model['name']}")
     tags.append(f"status:{trace.get('status')}")
+    source = source or {}
+    for key, tag in (("company", "company"), ("source_id", "source"), ("borrower_shown", "borrower"),
+                     ("policy_id", "policy")):
+        if source.get(key):
+            tags.append(f"{tag}:{source[key]}")
     return tags
 
 
@@ -81,7 +118,8 @@ def _send_event(root: Any, event: dict) -> None:
         cost = usage.get("cost_usd")
         obs = root.start_observation(
             name=f"{prefix}model call", as_type="generation", model=event.get("served_by"),
-            output={"text": event.get("text"), "tool_calls": event.get("tool_calls", [])},
+            output={"text": event.get("text"), "tool_calls": event.get("tool_calls", []),
+                    **({"reasoning": event["reasoning"]} if event.get("reasoning") else {})},
             usage_details={"input": int(usage.get("tokens_in") or 0), "output": int(usage.get("tokens_out") or 0)},
             cost_details=None if cost is None else {"total": float(cost)},
             metadata={"stop_reason": event.get("stop_reason"), "t": event.get("t"),
@@ -110,14 +148,17 @@ def export_trace(trace: dict, client: Any, experiment: str | None = None,
     run_id = trace["run_id"]
     trace_id = client.create_trace_id(seed=f"{experiment or ''}/{run_id}")
     model = trace.get("model") or {}
+    source = source_info(trace)
     with client.start_as_current_observation(
         trace_context={"trace_id": trace_id}, name=run_id, as_type="agent",
         input={k: trace.get(k) for k in ("case_id", "case_version", "case_type", "mode", "repeat")},
         metadata={"model": model.get("name"), "model_id": model.get("model"), "env": trace.get("env"),
-                  "case_hash": trace.get("case_hash"), "started_at": trace.get("started_at")},
+                  "case_hash": trace.get("case_hash"), "started_at": trace.get("started_at"),
+                  **({"source": source} if source else {})},
     ) as root:
-        with propagate(trace_name=run_id, session_id=experiment, tags=trace_tags(trace),
-                       metadata={"run_id": run_id, "status": str(trace.get("status"))}):
+        with propagate(trace_name=run_id, session_id=experiment, tags=trace_tags(trace, source),
+                       metadata={"run_id": run_id, "status": str(trace.get("status")),
+                                 **({"company": str(source["company"])} if source.get("company") else {})}):
             for event in trace.get("events", []):
                 _send_event(root, event)
             error_lines = (trace.get("error") or "").strip().splitlines()
