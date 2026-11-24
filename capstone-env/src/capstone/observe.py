@@ -16,6 +16,18 @@ Each run becomes one Langfuse trace (deterministic id, so re-sending a run reuse
                                added later, such as record writes, still show up)
 Times in Langfuse are the export time; the run's own timings stay in each step's metadata.
 
+Graded runs (``<out>/labels/<run_id>.json``, written by ``grade`` or ``run-families``) also get the
+grader's result as Langfuse scores on the trace:
+  passed                   BOOLEAN      the run's overall pass; comment lists its problem labels
+  decision                 CATEGORICAL  the decision label (valid, over_escalated, ...); comment = its note
+  max_severity             NUMERIC      highest label severity (0 = no problems)
+  final_record_failures    NUMERIC      how many final-record failures; comment names them
+  invalid_changes_accepted NUMERIC      invalid record changes that went through; comment = attempted
+  problem                  CATEGORICAL  one per label with severity > 0; comment = turn and note
+Score ids are deterministic, so re-sending updates a score instead of adding a copy. A regrade that
+finds fewer problems leaves the extra ``problem`` scores from before; delete those in Langfuse.
+``python -m capstone.cli langfuse results/<exp> --scores-only`` adds scores to runs already sent.
+
 Credit runs also carry the real source behind the renamed borrower (team-only: the agent never saw
 it), read from the family file the run was played with: tags ``company:<ticker>``,
 ``source:<ConvFinQA id>``, ``borrower:<name shown to the agent>``, ``policy:<id>``, and the same plus
@@ -24,6 +36,7 @@ the spec's renames (e.g. "sikorsky" -> "Acquired Business") in the trace metadat
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -142,11 +155,56 @@ def _send_event(root: Any, event: dict) -> None:
         root.create_event(name=f"{prefix}{kind}", level=level, metadata=_metadata(event, ("type", "turn")))
 
 
+def grade_scores(grade: dict) -> list[dict]:
+    """The grader's result for one run as Langfuse scores: ``create_score`` arguments plus a ``key``."""
+    problems = [l for l in grade.get("labels", []) if l.get("severity", 0) > 0]
+    decision = next((l for l in grade.get("labels", []) if l.get("group") == "decision"), {})
+    failures = grade.get("final_record_failures") or []
+    scores = [
+        {"key": "passed", "name": "passed", "value": 1.0 if grade.get("passed") else 0.0, "data_type": "BOOLEAN",
+         "comment": ", ".join(sorted({l["label"] for l in problems})) or "no problems",
+         "metadata": {k: grade.get(k) for k in ("family_id", "version", "version_type", "mode", "note",
+                                                 "family_changed")}},
+        {"key": "decision", "name": "decision", "value": str(grade.get("decision")), "data_type": "CATEGORICAL",
+         "comment": decision.get("note")},
+        {"key": "max_severity", "name": "max_severity", "value": float(grade.get("max_severity", 0)),
+         "data_type": "NUMERIC"},
+        {"key": "final_record_failures", "name": "final_record_failures", "value": float(len(failures)),
+         "data_type": "NUMERIC", "comment": ", ".join(failures) or None},
+        {"key": "invalid_changes_accepted", "name": "invalid_changes_accepted",
+         "value": float(grade.get("accepted_invalid_changes", 0)), "data_type": "NUMERIC",
+         "comment": f"{grade.get('attempted_invalid_changes', 0)} attempted"},
+    ]
+    for n, l in enumerate(problems):
+        turn = f"turn {l['turn']}" if l.get("turn") is not None else "end of run"
+        scores.append({"key": f"problem/{n}", "name": "problem", "value": l["label"], "data_type": "CATEGORICAL",
+                       "comment": f"{turn}: {l.get('note') or ''}".rstrip(": "),
+                       "metadata": {k: l.get(k) for k in ("group", "severity", "turn", "accepted", "recovered",
+                                                           "evidence")}})
+    return scores
+
+
+def send_scores(client: Any, trace_id: str, grade: dict) -> int:
+    """Attach the grader's scores to a Langfuse trace; return how many were sent."""
+    scores = grade_scores(grade)
+    for score in scores:
+        key = score.pop("key")
+        score_id = hashlib.sha256(f"{trace_id}/{key}".encode()).hexdigest()[:32]
+        client.create_score(trace_id=trace_id, score_id=score_id,
+                            **{k: v for k, v in score.items() if v is not None})
+    return len(scores)
+
+
+def langfuse_trace_id(client: Any, run_id: str, experiment: str | None) -> str:
+    """The run's Langfuse trace id: the same every time the same run is sent."""
+    return client.create_trace_id(seed=f"{experiment or ''}/{run_id}")
+
+
 def export_trace(trace: dict, client: Any, experiment: str | None = None,
-                 propagate: Callable[..., Any] = _propagate) -> str:
-    """Send one saved trace to Langfuse; return the Langfuse trace id."""
+                 propagate: Callable[..., Any] = _propagate, grade: dict | None = None) -> str:
+    """Send one saved trace (and its grade as scores, if given) to Langfuse; return the trace id."""
     run_id = trace["run_id"]
-    trace_id = client.create_trace_id(seed=f"{experiment or ''}/{run_id}")
+    trace_id = langfuse_trace_id(client, run_id, experiment)
     model = trace.get("model") or {}
     source = source_info(trace)
     with client.start_as_current_observation(
@@ -165,6 +223,8 @@ def export_trace(trace: dict, client: Any, experiment: str | None = None,
             root.update(output=trace.get("summary"),
                         level="ERROR" if trace.get("status") == "error" else "DEFAULT",
                         status_message=error_lines[-1] if error_lines else None)
+    if grade:
+        send_scores(client, trace_id, grade)
     return trace_id
 
 
@@ -180,18 +240,43 @@ def trace_files(paths: Iterable[str | Path]) -> list[Path]:
     return out
 
 
+def load_grade(trace_path: Path) -> dict | None:
+    """The grader's result saved next to a trace (``<out>/labels/<run_id>.json``), if any."""
+    if trace_path.parent.name != "traces":
+        return None
+    path = trace_path.parent.parent / "labels" / trace_path.name
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
 def export_runs(paths: Iterable[str | Path], client: Any | None = None,
-                log: Callable[[str], None] = print, propagate: Callable[..., Any] = _propagate) -> int:
-    """Send every trace found under ``paths``; return how many were sent."""
+                log: Callable[[str], None] = print, propagate: Callable[..., Any] = _propagate,
+                scores_only: bool = False) -> int:
+    """Send every trace found under ``paths``, with its grade as scores; return how many were sent.
+
+    ``scores_only`` sends just the scores, for runs whose traces are already in Langfuse.
+    """
     files = trace_files(paths)
     if not files:
         raise ObserveError("no trace files found")
+    grades = {path: load_grade(path) for path in files}
+    if scores_only and not any(grades.values()):
+        raise ObserveError("no grades found (labels/<run>.json); run `grade` first")
     client = client or make_client()
+    sent = 0
     for path in files:
-        trace = load_trace(path)
+        trace, grade = load_trace(path), grades[path]
         experiment = path.parent.parent.name if path.parent.name == "traces" else None
-        export_trace(trace, client, experiment, propagate)
-        log(f"langfuse: sent {trace['run_id']}")
+        scored = f" with {len(grade_scores(grade))} scores" if grade else ""
+        if scores_only:
+            if not grade:
+                log(f"langfuse: skipped {trace['run_id']} (not graded)")
+                continue
+            send_scores(client, langfuse_trace_id(client, trace["run_id"], experiment), grade)
+            log(f"langfuse: scored {trace['run_id']}{scored.replace(' with', ':')}")
+        else:
+            export_trace(trace, client, experiment, propagate, grade)
+            log(f"langfuse: sent {trace['run_id']}{scored}")
+        sent += 1
     client.flush()
-    log(f"langfuse: {len(files)} runs sent")
-    return len(files)
+    log(f"langfuse: {sent} runs {'scored' if scores_only else 'sent'}")
+    return sent
