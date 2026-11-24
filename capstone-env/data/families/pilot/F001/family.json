@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "family_id": "F001",
   "set": "pilot",
   "selection": {
@@ -812,7 +812,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 2,
@@ -834,7 +842,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -846,7 +862,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -1099,7 +1123,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 2,
@@ -1111,7 +1143,15 @@
               "expected_answer": 45366.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -1123,7 +1163,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -1135,7 +1183,15 @@
               "expected_answer": -2003.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -1147,7 +1203,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -1159,7 +1223,15 @@
               "expected_answer": -0.042285,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -1181,7 +1253,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -1193,7 +1273,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -1640,7 +1728,15 @@
                   "request_evidence": "valid"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -1662,7 +1758,15 @@
                   "request_evidence": "valid"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -1726,7 +1830,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 4,
@@ -1748,7 +1860,15 @@
                   "request_evidence": "valid"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -1804,7 +1924,15 @@
                 "evidence_doc": "DOC-03"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": true,
+                "metric_changed": true,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 6,
@@ -1826,7 +1954,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -1838,7 +1974,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -2062,7 +2206,15 @@
                   "request_evidence": "valid"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -2084,7 +2236,15 @@
                   "request_evidence": "valid"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -2148,7 +2308,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 4,
@@ -2170,7 +2338,15 @@
                   "request_evidence": "valid"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": null,
+                "meets_threshold": null,
+                "lean": "waiting_for_evidence",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -2226,7 +2402,15 @@
                 "evidence_doc": "DOC-03"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": true,
+                "metric_changed": true,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 6,
@@ -2238,7 +2422,15 @@
               "expected_answer": 45366.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -2250,7 +2442,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -2262,7 +2462,15 @@
               "expected_answer": -2003.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 9,
@@ -2274,7 +2482,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 10,
@@ -2286,7 +2502,15 @@
               "expected_answer": -0.042285,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 11,
@@ -2308,7 +2532,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 12,
@@ -2320,7 +2552,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -2742,7 +2982,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -2764,7 +3012,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -2820,7 +3076,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "escalate",
+                "pin_moved": true,
+                "metric_changed": true,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 4,
@@ -2832,7 +3096,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "escalate",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -3042,7 +3314,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -3054,7 +3334,15 @@
               "expected_answer": 48790.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -3066,7 +3354,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -3078,7 +3374,15 @@
               "expected_answer": 1421.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -3090,7 +3394,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -3102,7 +3414,15 @@
               "expected_answer": 0.029999,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -3124,7 +3444,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": 0.029999,
+                "meets_threshold": true,
+                "lean": "renew",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -3180,7 +3508,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "escalate",
+                "pin_moved": true,
+                "metric_changed": true,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 9,
@@ -3192,7 +3528,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "escalate",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -3588,7 +3932,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -3610,7 +3962,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -3674,7 +4034,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 4,
@@ -3686,7 +4054,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -3887,7 +4263,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -3899,7 +4283,15 @@
               "expected_answer": 45366.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -3911,7 +4303,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -3923,7 +4323,15 @@
               "expected_answer": -2003.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -3935,7 +4343,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -3947,7 +4363,15 @@
               "expected_answer": -0.042285,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -3969,7 +4393,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -4033,7 +4465,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 9,
@@ -4045,7 +4485,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -4423,7 +4871,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -4445,7 +4901,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -4459,7 +4923,15 @@
               "checkpoint": null,
               "reactions": [],
               "claimed_value": 48790.0,
-              "evidence_attached": false
+              "evidence_attached": false,
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -4471,7 +4943,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -4672,7 +5152,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -4684,7 +5172,15 @@
               "expected_answer": 45366.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -4696,7 +5192,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -4708,7 +5212,15 @@
               "expected_answer": -2003.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -4720,7 +5232,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -4732,7 +5252,15 @@
               "expected_answer": -0.042285,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -4754,7 +5282,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -4768,7 +5304,15 @@
               "checkpoint": null,
               "reactions": [],
               "claimed_value": 48790.0,
-              "evidence_attached": false
+              "evidence_attached": false,
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 9,
@@ -4780,7 +5324,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -5156,7 +5708,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -5178,7 +5738,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -5198,7 +5766,15 @@
                 }
               ],
               "claimed_value": 48790.0,
-              "evidence_attached": false
+              "evidence_attached": false,
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -5210,7 +5786,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -5411,7 +5995,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -5423,7 +6015,15 @@
               "expected_answer": 45366.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -5435,7 +6035,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -5447,7 +6055,15 @@
               "expected_answer": -2003.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -5459,7 +6075,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -5471,7 +6095,15 @@
               "expected_answer": -0.042285,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -5493,7 +6125,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -5513,7 +6153,15 @@
                 }
               ],
               "claimed_value": 48790.0,
-              "evidence_attached": false
+              "evidence_attached": false,
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 9,
@@ -5525,7 +6173,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -5903,7 +6559,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -5925,7 +6589,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -5937,7 +6609,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -6138,7 +6818,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -6150,7 +6838,15 @@
               "expected_answer": 45366.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -6162,7 +6858,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -6174,7 +6878,15 @@
               "expected_answer": -2003.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -6186,7 +6898,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -6198,7 +6918,15 @@
               "expected_answer": -0.042285,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -6220,7 +6948,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -6232,7 +6968,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -6642,7 +7386,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -6664,7 +7416,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -6720,7 +7480,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": true,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 4,
@@ -6732,7 +7500,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -6942,7 +7718,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -6954,7 +7738,15 @@
               "expected_answer": 46604.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -6966,7 +7758,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -6978,7 +7778,15 @@
               "expected_answer": -765.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -6990,7 +7798,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -7002,7 +7818,15 @@
               "expected_answer": -0.01615,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -7024,7 +7848,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.01615,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -7080,7 +7912,15 @@
                 "evidence_doc": "DOC-02"
               },
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": true,
+                "reaction": "update_record"
+              }
             },
             {
               "turn": 9,
@@ -7092,7 +7932,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -7478,7 +8326,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -7500,7 +8356,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -7526,7 +8390,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "log_event"
+              }
             },
             {
               "turn": 4,
@@ -7538,7 +8410,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [
@@ -7739,7 +8619,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 2,
@@ -7751,7 +8639,15 @@
               "expected_answer": 45366.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 3,
@@ -7763,7 +8659,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 4,
@@ -7775,7 +8679,15 @@
               "expected_answer": -2003.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 5,
@@ -7787,7 +8699,15 @@
               "expected_answer": 47369.0,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 6,
@@ -7799,7 +8719,15 @@
               "expected_answer": -0.042285,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 7,
@@ -7821,7 +8749,15 @@
                   "request_evidence": "unnecessary_block"
                 }
               },
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             },
             {
               "turn": 8,
@@ -7847,7 +8783,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "log_event"
+              }
             },
             {
               "turn": 9,
@@ -7859,7 +8803,15 @@
               "expected_answer": null,
               "record_change": null,
               "checkpoint": null,
-              "reactions": []
+              "reactions": [],
+              "expected_state": {
+                "metric_value": -0.042285,
+                "meets_threshold": false,
+                "lean": "decline",
+                "pin_moved": false,
+                "metric_changed": false,
+                "reaction": "no_change"
+              }
             }
           ],
           "answer_checks": [

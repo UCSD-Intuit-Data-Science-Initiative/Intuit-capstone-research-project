@@ -87,8 +87,9 @@ from capstone.data.program import (
 )
 from capstone.data.select import SEED, TOTAL_TOL_ABS, TOTAL_TOL_REL, Table, irrelevant_cells
 
-SCHEMA_VERSION = 4  # 2: `provenance`. 3: 9 versions, two modes, reactions, events, selection, sets.
+SCHEMA_VERSION = 5  # 2: `provenance`. 3: 9 versions, two modes, reactions, events, selection, sets.
                     # 4: RNW-4: case header document, every document dated, gap_filled
+                    # 5: expected_state on every turn
 ALLOWED_GROWTH_LABELS = frozenset({
     "net sales", "sales", "revenue", "revenues", "net revenue", "segment revenue",
     "operating revenues", "operating revenue",
@@ -506,6 +507,30 @@ def classes_opening(metric: Optional[float]) -> dict[str, str]:
             "request_evidence": "valid" if metric is None else "unnecessary_block"}
 
 
+LEANS = ("renew", "decline", "escalate", "waiting_for_evidence")
+REACTIONS = ("update_record", "log_event", "no_change")
+
+
+def lean_of(classes: dict[str, str], final: bool) -> str:
+    """The expected lean from one set of action classes: the one of renew, decline, escalate whose
+    class is valid; at a checkpoint with none valid and request_evidence valid, an input is missing
+    (E1, E6) and the lean is waiting_for_evidence. Anything else is ambiguous: no guessing."""
+    valid = [a for a in ("renew", "decline", "escalate") if classes[a] == "valid"]
+    waiting = not final and classes["request_evidence"] == "valid"
+    if len(valid) == 1 and not waiting:
+        return valid[0]
+    if not valid and waiting:
+        return "waiting_for_evidence"
+    raise FamilyError(f"cannot determine one lean from {classes}")
+
+
+def reaction_of(record_change: Optional[dict], event: Optional[str]) -> str:
+    """What a turn's content requires of the record (a change and an event together is not supported)."""
+    if record_change and event:
+        raise FamilyError("a turn with both a record change and an event is not supported")
+    return "update_record" if record_change else "log_event" if event else "no_change"
+
+
 def record_failures(version: dict, final_facts: dict[str, dict],
                     final_events: Optional[Sequence[dict]] = None) -> list[str]:
     """What is wrong with the agent's record, as named failures; empty means it is correct.
@@ -816,10 +841,22 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
     def flipped_now(m: Optional[float]) -> bool:
         return baseline_set and baseline is not None and m is not None and side(baseline) != side(m)
 
-    def add_turn(**fields):
-        turns.append({"turn": len(turns) + 1, "speaker": "analyst", "kind": "", "text": "", "documents": [],
-                      "program": None, "expected_answer": None, "record_change": None, "checkpoint": None,
-                      "reactions": [], **fields})
+    def add_turn(_event=None, **fields):
+        turn = {"turn": len(turns) + 1, "speaker": "analyst", "kind": "", "text": "", "documents": [],
+                "program": None, "expected_answer": None, "record_change": None, "checkpoint": None,
+                "reactions": [], **fields}
+        # expected state: the record as it stands once this turn's documents are processed
+        m, final = metric_of(record), turn["kind"] == "final_decision_request"
+        lean = lean_of(classes_final(side(m), flipped_now(m)) if final
+                       else classes_checkpoint(m, threshold, flipped_now(m)), final)
+        prev = turns[-1]["expected_state"] if turns else None
+        value = None if m is None else round(m, 6)
+        turn["expected_state"] = {
+            "metric_value": value, "meets_threshold": side(m), "lean": lean,
+            "pin_moved": prev is not None and lean != prev["lean"],
+            "metric_changed": prev is not None and value != prev["metric_value"],
+            "reaction": reaction_of(turn["record_change"], _event)}
+        turns.append(turn)
 
     for step, ts in enumerate(vs["turns"], 1):  # step = turn number in the unscripted copy
         kind = ts["kind"]
@@ -920,7 +957,7 @@ def play(ctx: Context, vs: dict, mode: str) -> dict:
             program, answer = prog.text, round(float(execute(prog)), 6)
         add_turn(speaker=ts.get("speaker", "analyst"), kind=kind, text=ts["text"], documents=documents,
                  program=program, expected_answer=answer, record_change=change, checkpoint=checkpoint,
-                 reactions=[dict(r) for r in ts.get("reactions", [])], **extra)
+                 reactions=[dict(r) for r in ts.get("reactions", [])], _event=ts.get("event"), **extra)
 
     metric = metric_of(record)
     meets = side(metric)
@@ -1130,7 +1167,10 @@ _CHECK = {"at_turn": int, "source_turn": int, "question": str, "program": str,
           "expected_answer": (int, float)}
 _TURN = {"turn": int, "speaker": str, "kind": str, "text": str, "documents": list,
          "program": (str, type(None)), "expected_answer": (int, float, type(None)),
-         "record_change": (dict, type(None)), "checkpoint": (dict, type(None)), "reactions": list}
+         "record_change": (dict, type(None)), "checkpoint": (dict, type(None)), "reactions": list,
+         "expected_state": dict}
+_STATE = {"metric_value": (int, float, type(None)), "meets_threshold": (bool, type(None)), "lean": str,
+          "pin_moved": bool, "metric_changed": bool, "reaction": str}
 _REACTION = {"if_agent": str, "speaker": str, "text": str}
 _DOC = {"doc_id": str, "doc_type": str, "title": str, "issued_by": str, "supersedes": (str, type(None)),
         "synthetic": bool, "table": list, "body": str}
@@ -1176,6 +1216,11 @@ def _validate_turn(t: dict, where: str, errors: list[str]) -> None:
         _fields(t["record_change"], _CHANGE, f"{where} change", errors)
         if t["record_change"].get("change_type") not in RECORD_CHANGE_TYPES:
             errors.append(f"{where}: unknown change type")
+    if isinstance(t.get("expected_state"), dict):
+        st = t["expected_state"]
+        _fields(st, _STATE, f"{where} expected_state", errors)
+        if set(st) != set(_STATE) or st.get("lean") not in LEANS or st.get("reaction") not in REACTIONS:
+            errors.append(f"{where}: expected_state has wrong keys or values: {st}")
     if t.get("checkpoint"):
         _fields(t["checkpoint"], _CHECKPOINT, f"{where} checkpoint", errors)
         _classes(t["checkpoint"].get("action_classes", {}), where, errors)
@@ -1313,6 +1358,11 @@ def _turn_md(t: dict) -> list[str]:
         c = t["checkpoint"]
         L += [f"- Checkpoint (non-binding): metric {c['metric_value']}, meets threshold: {c['meets_threshold']}",
               "- Classes: " + ", ".join(f"`{a}` {k}" for a, k in c["action_classes"].items()), ""]
+    if "expected_state" in t:
+        e = t["expected_state"]
+        L += [f"- Expected state: lean `{e['lean']}`, metric {e['metric_value']}, meets threshold: "
+              f"{e['meets_threshold']}, pin moved: {e['pin_moved']}, metric changed: {e['metric_changed']}, "
+              f"reaction `{e['reaction']}`", ""]
     if "claimed_value" in t:
         L += [f"- Claimed value {t['claimed_value']}, no evidence attached. Record must not change.", ""]
     for r in t["reactions"]:

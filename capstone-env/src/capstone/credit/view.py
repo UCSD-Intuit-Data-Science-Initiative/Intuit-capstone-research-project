@@ -16,7 +16,8 @@ AGENT_DOC_FIELDS = ("doc_id", "doc_type", "title", "issued_by", "supersedes", "s
                     "table", "body")
 # Fields of a family turn or document that must never reach the agent (checked by the tests).
 GRADER_ONLY_FIELDS = ("kind", "turn", "checkpoint", "expected_answer", "program", "record_change",
-                      "reactions", "claimed_value", "evidence_attached", "synthetic", "edited_cells")
+                      "reactions", "claimed_value", "evidence_attached", "synthetic", "edited_cells",
+                      "expected_state")
 TABLE_MARKER = "[schedule table]"
 
 
