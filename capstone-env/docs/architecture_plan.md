@@ -38,8 +38,8 @@ several agents with review.
 | Architecture, Nov 12: when review is mandatory, what the reviewer approves, what a return does; skipping review is a measured failure | PR 6 |
 | Architecture, Nov 12: grade intermediate states from the event log; attempted vs accepted invalid changes vs final consequences | Rule 4; PR 3 |
 | Code review, Nov 24 (acted on): 1 telemetry access for Dhruvi and Victor | Open: Langfuse invites (team action, not code) |
-| Code review, Nov 24: 2 unique IDs per run and per error | `run_uid`, `label_id` (round below); not yet in Langfuse |
-| Code review, Nov 24: 3 explainability | Decision: the model's saved thinking, no new tool field; not yet beside each tool call in Langfuse |
+| Code review, Nov 24: 2 unique IDs per run and per error | `run_uid`, `label_id`, in the grader and in Langfuse (round below) |
+| Code review, Nov 24: 3 explainability | Decision: the model's saved thinking, no new tool field; Langfuse shows it on each model call and beside each tool call |
 | Code review, Nov 24: 4 updated policies | RNW-4 (#10) |
 | Code review, Nov 24: 5 narrower labels | `detail` on four labels; more splits proposed, not built |
 | Code review, Nov 24: 6 why and where it fails, no overlap | One primary problem per run, labels dated by turn, report tables that count each run once |
@@ -57,10 +57,12 @@ several agents with review.
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
 | 7 Policy swap | `policy/rnw-4` | replaced by RNW-4: merged (#10, Nov 24) | Every family on RNW-4 (see "PR 7 notes") |
 | Langfuse scores | `policy/rnw-4`, then `main` | #11 went into `policy/rnw-4` by mistake; #12 put the same commit on `main` (merged Nov 24) | Scores on Langfuse traces |
-| Mentor round: mechanics wording | `stage6/mechanics-wording` | built and reviewed; on `integration/mentor-feedback`, not pushed | Prompt and `log_event` wording |
-| Mentor round: expected state | `stage6/expected-state` | same | Schema 5, `expected_state` on every turn |
-| Mentor round: grader labels | `stage6/grader-labels` | same | `run_uid`, `label_id`, primary problem, `detail` |
-| Mentor round: turn state | `stage6/turn-state` | same | Per-turn decision state |
+| Mentor round 1: mechanics wording | `stage6/mechanics-wording` | reviewed; PR #13 open (Nov 24) | Prompt and `log_event` wording |
+| Mentor round 2: expected state | `stage6/expected-state` | reviewed; PR #14 open | Schema 5, `expected_state` on every turn |
+| Mentor round 3: grader labels | `stage6/grader-labels` | reviewed; PR #15 open | `run_uid`, `label_id`, primary problem, `detail` |
+| Mentor round 4: turn state | `stage6/turn-state` | reviewed; PR #16 open (contains #13-#15) | Per-turn decision state |
+| Mentor round 5: Langfuse IDs | `observe/langfuse-ids` | reviewed; PR #17 open (contains #13-#16) | IDs, primary problem and per-turn scores in Langfuse; thinking beside each tool call |
+| Mentor round 6: docs | `docs/mentor-feedback-round` | PR #18 open | This plan, CLAUDE.md, README |
 
 PRs 1-4 are the proof of concept. After PR 3 a full run can be demonstrated with mock agents at no
 API cost.
@@ -183,7 +185,9 @@ a finding about Claude.
 
 ## PR 7 notes: switching to RNW-1-v2
 
-From Sophia's draft (`policy/rnw-1-v2`, 58 rules): the decision logic matches today's gold. Needed:
+From Sophia's draft (`policy/rnw-1-v2`, 58 rules): the decision logic matches today's gold (this was wrong
+for version 1: its F1 rule would have escalated where the gold declined; RNW-4 settled it with decision F-1).
+Needed:
 gold rule tags move from P-ids to the new ids (E3, F1, O1-O5…); correction documents need a date
 (C2 requires id, issuer and date); facts gain unit/period/how-entered (G1); "gap filled" naming vs
 `new_information`. The harness needs no change if rules 1-3 above hold.
@@ -198,9 +202,11 @@ family tests O6-O9 or F1(b) at the final decision.
 
 ## Mentor code-review round (Nov 24 2026)
 
-Answers the code-review feedback in CLAUDE.md (status per point is in the feedback table above). Four
-changes, each on its own local branch, reviewed, merged together on `integration/mentor-feedback`, not
-pushed: 1008 tests pass, `make family-check` clean. Runs made before a change used the older behaviour.
+Answers the code-review feedback in CLAUDE.md (status per point is in the feedback table above). Five
+changes, each built by its own agent on its own branch, reviewed, and open as PRs #13-#17 (docs: #18). All
+six are based on `main`; #16 and #17 contain the earlier ones, so any merge order gives the same result.
+With all of them together: 1032 tests pass, `make family-check` clean. Runs made before a change used the
+older behaviour.
 
 **1. Mechanics wording** (`stage6/mechanics-wording`). The system prompt now says: "A final action is
 taken only by calling its tool; stating a decision in your reply text does not take it." The `log_event`
@@ -273,6 +279,29 @@ field and the schema version, 449 turns). The agent never sees it. `docs/familie
   covers it).
 - No state label changes `passed`, `decision` or any other label.
 - `runs.csv` gains `check_first_wrong_lean_turn`; the report gains "Decision state by turn".
+- Checked on the 36 saved Qwen runs: pass/fail, decisions and all earlier labels are identical with and
+  without it. A lean stated only in text counts as not stated; reading text needs a person or a checked
+  AI judge.
+
+**5. Langfuse: IDs, scores, thinking beside each tool call** (`observe/langfuse-ids`). The module docstring
+of `observe.py` is the source of truth.
+- Each trace gets a tag `run_uid:<id>` and `run_uid` in its metadata. The Langfuse trace id is seeded as
+  before (experiment and `run_id`), so runs already sent keep updating in place.
+- Each `problem` score is keyed by its `label_id`, not its position, so a regrade cannot attach one
+  label's score to another label; its metadata gains `label_id`, `detail` and `role`. Grade files without
+  label ids keep the positional keys and export exactly as before.
+- New scores, sent only when the grade file has the field: `primary_problem` (the label, or `none`),
+  `first_problem_turn`, `lean_stated`, `lean_correct`, `lean_wrong`, `first_wrong_lean_turn`. `turn_states`
+  goes in the `passed` score's metadata (the SDK drops trace metadata values over 200 characters).
+- Each tool observation's metadata names the model call that asked for it (`decided_by_event`,
+  `decided_by_match`) and copies that call's saved thinking (`reasoning`) and text (`said`), whole, left
+  out when empty. Tool calls are matched by tool-call id, else by order within the turn. It is the model's
+  own stated thinking, not proof of why it chose the tool, and many models return none.
+- No new flags: `cli langfuse <exp> --scores-only` and `run-families ... --langfuse` send everything.
+- Tested with fake clients and against the installed SDK's signatures (langfuse 5.2.0). Not yet tried
+  against the real project.
+- Built on Opus: the Sonnet agent given this task was stopped twice by an automatic safety filter before
+  it wrote anything (the filter's label was `reasoning_extraction`).
 
 **Next runs.** Qwen on RNW-4, all four families, k = 3 (216 runs, overnight, free); then one Claude smoke run
 and the 36-run Claude run.
@@ -289,9 +318,10 @@ kind; `no_decision` details `named_tool_in_text` and `stopped_early`.
 - What counts as asking for proof: the `request_evidence` tool only, or plain text too.
 - Limits (15 / 60 / 120 s / 3) — confirm.
 - Multi-agent: single record writer vs proposals; which setup after the pilot (B or C).
-- Langfuse: send `run_uid`, `label_id`, the primary problem and the per-turn summary as scores, and show the
-  thinking beside each tool call. Not built: the agent assigned to it was stopped twice by an automatic safety
-  filter before writing anything. Decision pending.
+- Langfuse, after #17: try it once against the real project (it was tested with fake clients only). Stale
+  scores can stay behind and need deleting by hand: the `problem` score of a label a regrade no longer
+  finds, and position-keyed `problem` scores already sent for older runs (such as the RNW-4 smoke sessions)
+  once those runs are re-scored.
 - Langfuse access: Dhruvi and Victor still need an invite to the project (team action).
 - RNW-4 rule G2 asks every `update_record` and `log_event` call to cite the outcome and clause, and mentions
   marking a fact withdrawn; the tools have no field for either and reject extra fields. Team decision: add
@@ -304,9 +334,8 @@ kind; `no_decision` details `named_tool_in_text` and `stopped_early`.
 ## Resuming
 
 ```bash
-git fetch && git checkout main && git pull      # PRs 1-4 and RNW-4 are merged; the Nov 24 round is not (below)
-git checkout integration/mentor-feedback        # local only until pushed: the four Nov 24 changes
-cd capstone-env && make build && make test      # 1008 tests on that branch (per the Nov 24 round; 567 with PR 4)
+git fetch && git checkout main && git pull      # PRs 1-4 and RNW-4 are merged; the Nov 24 round is PRs #13-#18
+cd capstone-env && make build && make test      # 1032 tests once #13-#18 are merged (583 on main before them)
 make demo                                        # 4 scripted mock agents through F001, no keys
 make poc-estimate                                # cost of the first real run; make poc runs it
 make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model

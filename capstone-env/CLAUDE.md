@@ -72,8 +72,8 @@ the right decision state at each turn.
 | Point | Status |
 |---|---|
 | 1 Access to telemetry | Open: Dhruvi and Victor still need an invite to the Langfuse project (a team action, not code) |
-| 2 Unique IDs | Done in the grader: `run_uid` per run, `label_id` per label. Carrying them into Langfuse is not done yet (see open items) |
-| 3 Explainability | Decision: use the model's saved thinking (in every trace since #10, shown on each model call in Langfuse); no new field on the agent's tools, because that would change the agent's behaviour. Showing it beside each tool call in Langfuse is not done |
+| 2 Unique IDs | Done: `run_uid` per run, `label_id` per label, in the grader and in Langfuse (trace tag and metadata; each `problem` score keyed by its `label_id`) |
+| 3 Explainability | Decision: use the model's saved thinking (in every trace since #10, shown on each model call in Langfuse); no new field on the agent's tools, because that would change the agent's behaviour. Langfuse also shows it beside each tool call. To check in the first Claude run: Claude may return its thinking empty |
 | 4 Updated policies | Done: RNW-4 (#10) |
 | 5 Narrower labels | Done: a `detail` on four labels; further splits proposed, not built |
 | 6 Why and where it fails, no overlap | Done: one primary problem per run (earliest problem), every label dated by turn, report tables that count each run once |
@@ -110,15 +110,18 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
 - [x] RNW-4 policy swap — Sophia's PR #10, merged Nov 24 (replaces the old PR 7). All families on RNW-4
   (see the Nov 23 log entries). Langfuse scores: #11 was merged into the `policy/rnw-4` branch by mistake, not
   `main`; #12 put the same commit on `main` (merged Nov 24).
-- [ ] Mentor code-review round (Nov 24) — four changes, each on its own local branch, reviewed, merged together
-  on `integration/mentor-feedback`, NOT pushed, not on `main`: 1008 tests pass, `make family-check` clean.
+- [ ] Mentor code-review round (Nov 24) — five changes plus docs, each on its own branch, reviewed, open as
+  PRs #13-#18 (all based on `main`, any merge order is safe), NOT merged yet. All together: 1032 tests pass,
+  `make family-check` clean.
   Details and rules: docs/architecture_plan.md "Mentor code-review round".
   - [x] `stage6/mechanics-wording`: system prompt says a final action is taken only by calling its tool; the
     `log_event` description says it never changes a figure (use `update_record`). Wording only.
   - [x] `stage6/expected-state`: schema 5, grader-only `expected_state` on every turn of every family.
   - [x] `stage6/grader-labels`: `run_uid`, `label_id`, one primary problem per run, `detail` on four labels.
   - [x] `stage6/turn-state`: per-turn decision state (`turn_states`, `state_summary`, group `state`).
-  - [ ] Push, PR, merge (team); then the runs in "Next runs" of the plan.
+  - [x] `observe/langfuse-ids`: Langfuse carries `run_uid`, `label_id`, the primary problem, the per-turn
+    counts, and the model's saved thinking beside each tool call. Not yet tried against the real project.
+  - [ ] Merge #13-#18 (team); then the runs in "Next runs" of the plan.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -220,8 +223,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [ ] 4 build families: 4 of 12 built (Nov 3, `data/stage-4-format`): pilot F001 (drawn) and F002 (Ivan's,
   hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
   352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
-- [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-4 merged, RNW-4 in; mentor-round code on
-  `integration/mentor-feedback`, not pushed; next the Claude run and PR 5), see the Stage 6 section and
+- [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-4 merged, RNW-4 in; mentor-round PRs #13-#18
+  open; next the Qwen and Claude runs and PR 5), see the Stage 6 section and
   docs/architecture_plan.md
 
 ## Stage 4 notes (from Stage 3)
@@ -285,7 +288,7 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - Harness (Stage 6): limits (15 tool calls/turn, 60/run, 120 s/turn, 3 rejected calls in a row: proposed); which
   model and keys for the Claude run; multi-agent single writer vs proposals. Each run starts fresh (decided).
   Langfuse vs LangSmith is closed (Nov 24, see the log). Other open items from the Nov 24 round:
-  docs/architecture_plan.md "Open questions" (Langfuse scores, RNW-4 rule G2 vs the tools, public sessions).
+  docs/architecture_plan.md "Open questions" (RNW-4 rule G2 vs the tools, public Langfuse sessions, stale scores).
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -416,12 +419,13 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   The OpenAI adapter now raises on an empty stream, and tests can no longer reach Langfuse.
 - 2026-11-24 RNW-4 merged (Sophia, #10): every family is on RNW-4, which replaces the plan's PR 7. #11 (Langfuse
   scores) went into `policy/rnw-4` by mistake; #12 put the same commit on `main` (merged).
-- 2026-11-24 Mentor code-review feedback acted on (see "Mentor code-review feedback"). Four changes built on
-  local branches, merged together on `integration/mentor-feedback`, not pushed: mechanics wording; schema 5
+- 2026-11-24 Mentor code-review feedback acted on (see "Mentor code-review feedback"). Five changes, each built
+  by its own agent on its own branch and reviewed, open as PRs #13-#17 (docs: #18): mechanics wording; schema 5
   `expected_state` on every turn; grader `run_uid` / `label_id` / one primary problem / `detail`; grader per-turn
-  decision state. Motive for the wording: in the Nov 19 Qwen run, 6 of 36 runs stated a decision in text without
+  decision state; Langfuse IDs, scores and thinking beside each tool call. Motive for the wording: in the Nov 19 Qwen run, 6 of 36 runs stated a decision in text without
   calling the tool and 9 logged a correction through `log_event`. Runs made before the wording used the old text.
-  1008 tests pass; `make family-check` clean. Rules: docs/architecture_plan.md "Mentor code-review round".
+  1032 tests pass with all of them together; `make family-check` clean. Rules: docs/architecture_plan.md
+  "Mentor code-review round".
 - 2026-11-24 Decisions (Ishaan): (1) Stay on Langfuse. LangSmith was considered (one dev project plus dataset and
   experiments); not adopted because the team has free Langfuse credits. Closes the open question. (2) Explainability
   comes from the model's saved thinking, not from a new field on the tools. (3) Per-turn expected state was built

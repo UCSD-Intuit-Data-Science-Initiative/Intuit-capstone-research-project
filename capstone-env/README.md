@@ -179,6 +179,9 @@ per run; `<out>/summary.csv` has pass^1…pass^k per model × mode × case type 
 Put `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env` (see `.env.example`), then add
 `--langfuse` to `run`, or send saved runs with `python -m capstone.cli langfuse results/<exp>`.
 Each run becomes one Langfuse trace: messages as events, model calls as generations (tokens, cost),
-tool calls as tool steps. The trace files stay the official record; Langfuse is a copy for
-browsing, and a run without keys still completes and saves its traces.
+tool calls as tool steps (each one notes the model call that asked for it and that call's saved
+thinking). A graded run also gets the grader's result as scores: `passed`, `decision`, the primary
+problem, one `problem` score per label (keyed by its `label_id`) and the per-turn decision-state counts;
+the trace is tagged with its `run_uid`. The trace files stay the official record; Langfuse is a copy
+for browsing, and a run without keys still completes and saves its traces.
 
