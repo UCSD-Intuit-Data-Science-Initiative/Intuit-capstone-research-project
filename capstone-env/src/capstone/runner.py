@@ -24,7 +24,7 @@ from .agent import DEFAULT_MAX_TOOL_CALLS
 from .env import make_env
 from .models import make_model
 from .player import MODES, Case, play
-from .trace import Trace, load_trace
+from .trace import Trace, load_trace, run_uid
 
 DEFAULT_CHECKER = "capstone.checker:check"
 DEFAULT_GROUP_BY = ("model", "mode", "case_type", "version")
@@ -176,7 +176,7 @@ def score_experiment(out_dir: str | Path, checker: str = DEFAULT_CHECKER,
         t = load_trace(path)
         s = t.get("summary", {})
         row: dict[str, Any] = {
-            "run_id": t["run_id"], "case_id": t["case_id"], "version": t["case_version"],
+            "run_id": t["run_id"], "run_uid": run_uid(t), "case_id": t["case_id"], "version": t["case_version"],
             "case_type": t["case_type"], "mode": t["mode"], "model": t["model"]["name"], "repeat": t["repeat"],
             "status": t["status"], "expected_outcome": _join(t.get("expected_outcome")),
             "final_action": s.get("final_action"), "first_decision": s.get("first_decision"), "passed": None,

@@ -18,6 +18,7 @@ the record version at that moment.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
 import time
@@ -77,6 +78,16 @@ class Trace:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.data, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, path)  # never leave a half-written trace behind
+
+
+def run_uid(trace: dict) -> str:
+    """A run's unique ID across experiments, derived from the saved trace (so old traces get one too).
+
+    ``run_id`` (e.g. ``F001__3__scripted__qwen-local__r0``) names the planned run and repeats whenever the
+    same run is played again in another experiment; ``started_at`` tells the plays apart. The same trace
+    always gives the same value: ``r-`` and the first 12 hex characters of sha256 of ``run_id|started_at``.
+    """
+    return "r-" + hashlib.sha256(f"{trace.get('run_id')}|{trace.get('started_at')}".encode("utf-8")).hexdigest()[:12]
 
 
 def load_trace(path: str | Path) -> dict:
