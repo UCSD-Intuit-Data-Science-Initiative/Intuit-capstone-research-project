@@ -962,7 +962,7 @@ def test_summary_table_has_one_row_per_version_matching_the_gold(on_disk):
 
 
 @needs_data
-def test_family_json_carries_provenance_and_schema_4(on_disk, spec):
+def test_family_json_carries_provenance_and_schema_version(on_disk, spec):
     assert on_disk["schema_version"] == 5 and on_disk["provenance"] == spec["provenance"]
     bad = copy.deepcopy(on_disk)
     del bad["provenance"]["template_sha256"]
