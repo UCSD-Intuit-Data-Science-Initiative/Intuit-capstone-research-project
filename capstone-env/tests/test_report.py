@@ -230,7 +230,7 @@ def test_a_real_experiment_report_has_the_new_tables(tmp_path):
     page = render_report(out)
     for section in ("## Primary problem per run", "## Problems that occur together"):
         assert section in page
-    # v3: missed_update and no_decision both have no turn; the higher severity (2) is primary. v6: no_decision alone.
+    # v3: the missed update was due on the correction turn, before the run stopped with no decision. v6: no_decision alone.
     assert "| missed_update | 2 | 2 |" in page and "| no_decision (other) | 2 | 2 |" in page
     assert "| missed_update | no_decision | 2 |" in page and "| no_decision | (nothing else) | 2 |" in page
     uids = [r["run_uid"] for r in csv.DictReader((out / "runs.csv").open())]

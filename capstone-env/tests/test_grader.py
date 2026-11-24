@@ -470,6 +470,13 @@ def test_an_event_logged_wrongly_early_is_the_primary_problem_not_the_no_decisio
         "event_wrongly_logged": "primary", "missed_update": "secondary", "no_decision": "secondary"}
 
 
+def test_in_one_turn_an_observed_action_comes_before_a_finding_with_no_event():
+    labels = [lab("never_done", 3, 2), lab("did_this", 3, 1, [7])]
+    assert grader.assign_ids_and_roles("r-1", labels)["label"] == "did_this"
+    labels = [lab("never_done", 2, 2), lab("did_this", 3, 4, [7])]          # an earlier turn still wins
+    assert grader.assign_ids_and_roles("r-1", labels)["label"] == "never_done"
+
+
 def test_a_new_label_type_is_picked_without_changing_the_rule():
     labels = [lab("per_turn_state_label", 1, 2), lab("event_wrongly_logged", 3, 1)]
     assert grader.assign_ids_and_roles("r-1", labels)["label"] == "per_turn_state_label"
@@ -596,6 +603,28 @@ def test_labels_without_a_finer_split_have_no_detail():
                ("no_decision", "event_wrongly_logged", "decided_too_early", "tool_misuse"))
 
 
+def test_end_of_run_labels_carry_the_turn_they_happened_or_were_due():
+    # v3 unscripted: opening, tentative request, correction (turn 3), final request (turn 4).
+    g = graded([SAY("a"), SAY("b"), SAY("c"), SAY("d")], "3")            # an agent that only talks
+    assert label(g, "missed_update")["turn"] == 3                         # the update was due on the correction turn
+    assert label(g, "no_decision")["turn"] == 4                           # the run stopped on the final turn
+    assert (g["primary_label"], g["first_problem_turn"]) == ("missed_update", 3)
+    # a rejected call in the opening reply is the earliest problem, ahead of the missed update
+    g = graded([TC("read_document", doc_id="DOC-99"), SAY("a"), SAY("b"), SAY("c"), SAY("d")], "3")
+    assert label(g, "tool_misuse")["turn"] == 1
+    assert (g["primary_label"], g["first_problem_turn"]) == ("tool_misuse", 1)
+    assert label(g, "missed_update")["role"] == "secondary" and label(g, "no_decision")["role"] == "secondary"
+    # the stale agent's wrong approval on the final turn is counted under the update it missed on turn 3
+    g = graded(AGENTS["stale"][1], "3")
+    assert (g["primary_label"], g["first_problem_turn"]) == ("missed_update", 3)
+    assert label(g, "invalid_approval")["role"] == "secondary"
+
+
+def test_an_event_that_was_not_logged_is_dated_by_the_notice_turn():
+    g = graded([SAY("a"), SAY("b"), SAY("c"), TC("decline", rationale="r")], "8")   # v8: the notice arrives on turn 3
+    assert label(g, "event_not_logged")["turn"] == 3 and g["primary_label"] == "event_not_logged"
+
+
 # ---- csv and files
 
 
@@ -606,7 +635,8 @@ def test_ids_roles_and_details_reach_the_files(tmp_path):
     trace = json.loads(next((out / "traces").glob("*.json")).read_text())
     saved = json.loads(next((out / "labels").glob("*.json")).read_text())
     assert saved["run_uid"] == run_uid(trace) and saved["primary_label"] == "no_decision"
-    assert saved["primary_label_id"] == saved["labels"][0]["label_id"] and saved["first_problem_turn"] is None
+    stopped_on = next(e["turn"] for e in trace["events"] if e["type"] == "stop")
+    assert saved["primary_label_id"] == saved["labels"][0]["label_id"] and saved["first_problem_turn"] == stopped_on
     labels = list(csv.DictReader((out / "labels.csv").open()))
     assert list(labels[0]) == ["run_id", "run_uid", "model", "family", "version", "version_type", "mode",
                                "family_changed", "label_id", "label", "group", "detail", "role", "turn", "severity",
@@ -615,4 +645,4 @@ def test_ids_roles_and_details_reach_the_files(tmp_path):
     assert labels[0]["role"] == "primary" and labels[0]["detail"] == "other"
     run = next(csv.DictReader((out / "runs.csv").open()))
     assert run["run_uid"] == saved["run_uid"] and run["check_primary_label"] == "no_decision"
-    assert run["check_primary_label_id"] == saved["primary_label_id"] and run["check_first_problem_turn"] == ""
+    assert run["check_primary_label_id"] == saved["primary_label_id"] and run["check_first_problem_turn"] == str(stopped_on)

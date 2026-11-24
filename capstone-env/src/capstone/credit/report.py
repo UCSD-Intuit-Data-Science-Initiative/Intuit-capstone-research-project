@@ -163,7 +163,7 @@ def render_report(out_dir: str | Path, title: str | None = None) -> str:
     if not problems:
         L.append("| none | | | | |")
 
-    # Primary problem per run: the rule is in credit/grader.py (earliest turn, then severity, then evidence).
+    # Primary problem per run: the rule is in credit/grader.py (earliest turn, observed before not done, severity).
     by_label_id = {l["label_id"]: l for l in labels if l.get("label_id")}
 
     def primary_text(r: dict) -> str:
@@ -175,8 +175,8 @@ def render_report(out_dir: str | Path, title: str | None = None) -> str:
 
     L += ["", "## Primary problem per run", "",
           "Each run is counted once, under its primary problem: the problem (severity above 0) with the earliest "
-          "turn, ties to the higher severity. This is a fixed counting rule, not proof that it caused the later "
-          "problems.", ""]
+          "turn. In the same turn, something the agent did comes before something it never did, then the higher "
+          "severity. This is a fixed counting rule, not proof that it caused the later problems.", ""]
     if not any("check_primary_label" in r for r in done):
         L.append("Not available: this experiment was graded before primary problems existed "
                  f"(regrade with `python -m capstone.cli grade {out_dir}`, then `score`).")

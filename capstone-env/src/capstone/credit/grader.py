@@ -38,13 +38,22 @@ Detail. Every label has a ``detail`` (None when there is no finer split). It spl
                        (the most frequent kind of rejection in the run; the note lists all kinds)
 
 One primary problem per run. A problem is a label with severity > 0. The primary problem is the problem
-with the earliest ``turn`` (a label whose turn is None counts as after the last turn); ties go to the
-higher severity, then to the lower first evidence index (then to list order). Every problem label gets
+with the earliest ``turn`` (a label whose turn is None counts as after the last turn). Within one turn, a
+label tied to a trace event (something the agent did) comes before a finding with no event (something it
+never did, known only at the end); then the higher severity, then the lower first evidence index (then
+list order). So a correction logged as an event on turn 3 and never written to the record is counted as
+event_wrongly_logged, with missed_update as a secondary label. Every problem label gets
 ``role`` "primary" or "secondary"; labels with severity 0 get ``role`` None. The result carries
 ``primary_label``, ``primary_label_id`` and ``first_problem_turn`` (all None when there is no problem).
 The rule looks only at turn, severity and evidence, never at a label's name, so new label types (for
 example per-turn decision-state labels) are picked up with no change here. "Earliest problem" is a
 fixed rule so that each run is counted once; it is NOT proof that this problem caused the later ones.
+
+Turns of labels that are not tied to one trace event: a finding about the final record (missed_update,
+missing_source, wrong_change_type_at_end, event_not_logged) carries the turn its expected change or event
+was due, i.e. the turn the document was given; record_wrong_at_end has no expected change and so no turn.
+no_decision, limit_hit and repeated_errors carry the turn the run stopped on; tool_misuse (one label per
+run) carries the turn of its first rejected call.
 
 Noticing (did it see the change) and consistency of words with actions need a person (or a
 checked AI judge) and are listed under ``needs_human_review``.
@@ -111,8 +120,10 @@ def label_ids(uid: str, labels: list[dict]) -> list[str]:
 
 
 def _problem_order(l: dict) -> tuple:
-    """Earliest turn (None = after the last turn), then higher severity, then lower first evidence index."""
-    return (float("inf") if l["turn"] is None else l["turn"], -l["severity"],
+    """Earliest turn (None = after the last turn); in one turn, a label tied to a trace event (something the
+    agent did) before a finding with no event (something it never did, known only at the end); then higher
+    severity, then lower first evidence index."""
+    return (float("inf") if l["turn"] is None else l["turn"], not l["evidence"], -l["severity"],
             min(l["evidence"]) if l["evidence"] else float("inf"))
 
 
@@ -158,6 +169,14 @@ class _Context:
         self.final_changes = final_db.get("change_log", [])
         self.final_events = final_db.get("events", [])
         self.final = final_db.get("final_action")
+
+    def due_turn(self, doc: Any) -> int | None:
+        """The turn a document was given on: when the record change or event it carries was due."""
+        return self.doc_turn.get(doc) if isinstance(doc, str) else None
+
+    def stop_turn(self) -> int | None:
+        """The turn the run stopped on (from its stop event): when an end-of-run problem happened."""
+        return next((e.get("turn") for e in reversed(self.events) if e["type"] == "stop"), None)
 
     def wrong_event_detail(self, doc: Any) -> str:
         """Why logging an event on ``doc`` was wrong: the document carries a record change (a correction or gap
@@ -210,7 +229,7 @@ def _decision(ctx: _Context, trace: dict) -> list[dict]:
         note = f"request_evidence in reply to the final-decision request; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
         return [_label(cls, "decision", turn, DECISION_SEVERITY[cls], asks, note)]
     detail, why = _no_decision_detail(ctx)
-    return [_label("no_decision", "decision", None, DECISION_SEVERITY["no_decision"], [],
+    return [_label("no_decision", "decision", ctx.stop_turn(), DECISION_SEVERITY["no_decision"], [],
                    f"run stopped: {stop}; heuristic detail: {why}", detail=detail)]
 
 
@@ -314,22 +333,27 @@ def _record(ctx: _Context) -> tuple[list[dict], int, int]:
         return labels, attempted, accepted_invalid
     for fact, want in ctx.expected_facts.items():
         got = ctx.final_facts.get(fact, {})
+        # A finding about the final record is dated by the turn its expected change was due (the turn the
+        # document was given), so "where it went wrong" is the missed turn, not the end of the run. A fact
+        # that had no expected change has no such turn.
+        due = ctx.due_turn((ctx.change_for(fact) or {}).get("evidence_doc"))
         if not close(got.get("value"), want.get("value")):
             kind = "missed_update" if ctx.change_for(fact) else "record_wrong_at_end"
-            labels.append(_label(kind, "record", None, 2, [],
+            labels.append(_label(kind, "record", due, 2, [],
                                  f"{fact} is {got.get('value')} at the end; expected {want.get('value')}"))
         elif got.get("source_doc") != want.get("source_doc"):
-            labels.append(_label("missing_source", "record", None, 1, [],
+            labels.append(_label("missing_source", "record", due, 1, [],
                                  f"{fact} cites {got.get('source_doc')}; expected {want.get('source_doc')}"))
         elif (exp := ctx.change_for(fact)) and ctx.last_change_type(fact) != exp["change_type"]:
             # Right figure, wrong kind of change: a corrected past error is not new information (mentor
             # requirement), and the change log keeps the wrong type, so this is a final failure.
-            labels.append(_label("wrong_change_type_at_end", "record", None, 2, [],
+            labels.append(_label("wrong_change_type_at_end", "record", due, 2, [],
                                  f"{fact} is recorded as {ctx.last_change_type(fact)}; expected {exp['change_type']}"))
     logged = {x.get("evidence_doc") for x in ctx.final_events}
     for x in ctx.expected_events:
         if x["evidence_doc"] not in logged:
-            labels.append(_label("event_not_logged", "record", None, 2, [], f"new event in {x['evidence_doc']}"))
+            labels.append(_label("event_not_logged", "record", ctx.due_turn(x["evidence_doc"]), 2, [],
+                                 f"new event in {x['evidence_doc']}"))
     return labels, attempted, accepted_invalid
 
 
@@ -434,7 +458,9 @@ def _process(ctx: _Context, trace: dict) -> list[dict]:
     if rejected or refused:
         kinds = Counter(misuse_kind(_rejection_reason(e)) for e in ctx.events if e["i"] in set(rejected + refused))
         detail = kinds.most_common(1)[0][0]       # the most frequent kind; the first seen wins a tie
-        labels.append(_label("tool_misuse", "process", None, 1, rejected + refused,
+        first = min(rejected + refused)             # the label is dated by the first rejected call
+        first_turn = next((e.get("turn") for e in ctx.events if e["i"] == first), None)
+        labels.append(_label("tool_misuse", "process", first_turn, 1, rejected + refused,
                              f"{len(rejected)} rejected, {len(refused)} not executed; kinds: "
                              + ", ".join(f"{k} {n}" for k, n in kinds.most_common()), detail=detail))
     for e in ctx.events:
@@ -444,9 +470,9 @@ def _process(ctx: _Context, trace: dict) -> list[dict]:
             labels.append(_label("output_truncated", "process", e["turn"], 1, [e["i"]], "the reply hit max_tokens"))
     stop = trace.get("stop_reason")
     if stop in LIMIT_STOPS:
-        labels.append(_label("limit_hit", "process", None, 2, [], stop))
+        labels.append(_label("limit_hit", "process", ctx.stop_turn(), 2, [], stop))
     if stop == "repeated_errors":
-        labels.append(_label("repeated_errors", "process", None, 2, [], "three rejected calls in a row"))
+        labels.append(_label("repeated_errors", "process", ctx.stop_turn(), 2, [], "three rejected calls in a row"))
     return labels
 
 
