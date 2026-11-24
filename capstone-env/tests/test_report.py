@@ -127,3 +127,110 @@ def test_progress_lines_show_start_time_and_time_left(tmp_path):
     assert "left)" in done[0] and "elapsed" in done[1] and "left" not in done[1]
     trace = json.loads(next((tmp_path / "exp" / "traces").rglob("*.json")).read_text())
     assert "_wall_s" not in trace
+
+
+# ---------------------------------------------------------------- run_uid, primary problem, detail in the report
+
+import csv  # noqa: E402
+
+
+def _write(out: Path, runs: list[dict], labels: list[dict]) -> Path:
+    out.mkdir(parents=True, exist_ok=True)
+    for name, rows in (("runs.csv", runs), ("labels.csv", labels)):
+        cols = list(dict.fromkeys(c for r in rows for c in r))
+        with (out / name).open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols)
+            w.writeheader()
+            w.writerows(rows)
+    return out
+
+
+def _run(run_id, uid, passed, **extra):
+    row = {"run_id": run_id, "case_id": "F001", "version": "3", "case_type": "correction", "mode": "unscripted",
+           "model": "m", "status": "completed", "passed": str(passed), "check_decision": "no_decision"}
+    if uid:
+        row["run_uid"] = uid
+    return {**row, **extra}
+
+
+def _lab(run_id, uid, label, severity, role="", detail="", label_id=""):
+    row = {"run_id": run_id, "label": label, "group": "record", "severity": str(severity), "turn": "3"}
+    if uid:
+        row.update(run_uid=uid, label_id=label_id, role=role, detail=detail)
+    return row
+
+
+def test_report_shows_run_uid_primary_problem_and_what_occurs_together(tmp_path):
+    runs = [
+        _run("A", "r-1", False, check_primary_label="event_wrongly_logged", check_primary_label_id="r-1-aaaaaa",
+             check_labels="event_wrongly_logged;missed_update;no_decision"),
+        _run("A", "r-2", False, check_primary_label="event_wrongly_logged", check_primary_label_id="r-2-bbbbbb",
+             check_labels="event_wrongly_logged"),            # same run_id played again: a different run
+        _run("B", "r-3", True, check_primary_label="", check_primary_label_id="", check_labels=""),
+        _run("C", "r-4", False, check_primary_label="no_decision", check_primary_label_id="r-4-cccccc",
+             check_labels="no_decision"),
+    ]
+    labels = [
+        _lab("A", "r-1", "event_wrongly_logged", 1, "primary", "correction_logged_as_event", "r-1-aaaaaa"),
+        _lab("A", "r-1", "missed_update", 2, "secondary", "", "r-1-dddddd"),
+        _lab("A", "r-1", "no_decision", 1, "secondary", "asked_question", "r-1-eeeeee"),
+        _lab("A", "r-2", "event_wrongly_logged", 1, "primary", "past_fact_logged_as_event", "r-2-bbbbbb"),
+        _lab("C", "r-4", "no_decision", 1, "primary", "asked_question", "r-4-cccccc"),
+    ]
+    page = render_report(_write(tmp_path / "exp", runs, labels))
+    assert "- Runs: 4 (4 completed, 0 errored)" in page
+    # per-run table: run_uid column and the primary problem with its detail
+    assert "| Run uid | Run | Passed | Decision | Primary problem |" in page
+    assert "| `r-1` | `A` | False | no_decision | event_wrongly_logged (correction_logged_as_event) |" in page
+    assert "| `r-3` | `B` | True | no_decision | - |" in page
+    # primary problem per run: every run once, no-problem runs in one row
+    section = page.split("## Primary problem per run")[1].split("## Problems that occur together")[0]
+    assert "| event_wrongly_logged (correction_logged_as_event) | 1 | 1 |" in section
+    assert "| event_wrongly_logged (past_fact_logged_as_event) | 1 | 1 |" in section
+    assert "| no_decision (asked_question) | 1 | 1 |" in section and "| no problem | 1 | 0 |" in section
+    assert sum(int(l.split("|")[2]) for l in section.splitlines() if l.startswith("| ") and l.split("|")[2].strip().isdigit()) == 4
+    # problems that occur together
+    together = page.split("## Problems that occur together")[1].split("## Runs")[0]
+    assert "| event_wrongly_logged | missed_update | 1 |" in together
+    assert "| event_wrongly_logged | no_decision | 1 |" in together
+    assert "| event_wrongly_logged | (nothing else) | 1 |" in together
+    assert "| no_decision | (nothing else) | 1 |" in together
+    # problem labels with the detail split; two plays of run "A" count as two runs
+    labels_table = page.split("## Problem labels")[1].split("## Primary problem per run")[0]
+    assert "| event_wrongly_logged | record | 2 | 1 | correction_logged_as_event 1; past_fact_logged_as_event 1 |" in labels_table
+    assert "| no_decision | record | 2 | 1 | asked_question 2 |" in labels_table
+    assert "| missed_update | record | 1 | 2 | - |" in labels_table
+
+
+def test_report_builds_for_an_experiment_graded_before_the_new_fields(tmp_path):
+    runs = [_run("A", None, False, check_labels="no_decision"), _run("B", None, True, check_labels="")]
+    labels = [_lab("A", None, "no_decision", 1), _lab("A", None, "event_wrongly_logged", 1)]
+    page = render_report(_write(tmp_path / "old", runs, labels))
+    assert "| `-` | `A` | False | no_decision | - | no_decision |" in page
+    assert "| event_wrongly_logged | record | 1 | 1 | - |" in page          # no detail column: shown as absent
+    assert page.count("Not available") == 2 and "## Primary problem per run" in page
+    # an experiment with run_uid in runs.csv but old labels (no roles) also builds
+    new_runs = [_run("A", "r-1", False, check_labels="no_decision")]
+    assert "| `r-1` | `A` |" in render_report(_write(tmp_path / "half", new_runs, labels))
+
+
+def test_report_counts_runs_not_graded_apart_and_handles_no_problems(tmp_path):
+    runs = [_run("A", "r-1", False, check_primary_label="", check_primary_label_id="", check_labels="",
+                 check_error="FamilyChanged: x"),
+            _run("B", "r-2", True, check_primary_label="", check_primary_label_id="", check_labels="")]
+    page = render_report(_write(tmp_path / "exp", runs, []))
+    assert "| not graded | 1 | 1 |" in page and "| no problem | 1 | 0 |" in page and "| none | | | | |" in page
+
+
+def test_a_real_experiment_report_has_the_new_tables(tmp_path):
+    out = tmp_path / "exp"
+    assert cli.main(["run-families", "--families", str(F001), "--versions", "3", "6", "--model", "mock",
+                     "--workers", "1", "--out", str(out)]) == 0
+    page = render_report(out)
+    for section in ("## Primary problem per run", "## Problems that occur together"):
+        assert section in page
+    # v3: missed_update and no_decision both have no turn; the higher severity (2) is primary. v6: no_decision alone.
+    assert "| missed_update | 2 | 2 |" in page and "| no_decision (other) | 2 | 2 |" in page
+    assert "| missed_update | no_decision | 2 |" in page and "| no_decision | (nothing else) | 2 |" in page
+    uids = [r["run_uid"] for r in csv.DictReader((out / "runs.csv").open())]
+    assert len(set(uids)) == 4 and all(f"`{u}`" in page for u in uids)
