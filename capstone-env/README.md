@@ -122,7 +122,18 @@ grades a run only against the `family.json` it was played with (checked by `case
 `make family` rebuild, old runs are skipped unless you pass `--allow-family-change` (results are then
 marked `family_changed`).
 
+Each run has a `run_uid` (unique across experiments) and each label a `label_id`. `labels.csv` has one
+row per label (columns: run_id, run_uid, model, family, version, version_type, mode, family_changed,
+label_id, label, group, detail, role, turn, severity, accepted, recovered, evidence, note). A run's
+earliest problem is its primary problem (`role` primary; the other problems are secondary). `runs.csv`
+gains `run_uid`, `check_primary_label`, `check_primary_label_id`, `check_first_problem_turn` and
+`check_first_wrong_lean_turn`. A sixth group, `state`, grades the agent's decision state turn by turn
+against the family file's `expected_state`; it never changes pass or fail. `report` makes a results page
+with, besides the older tables, "Primary problem per run", "Problems that occur together" and "Decision
+state by turn". The rules are in the docstring of `grader.py` and in `docs/architecture_plan.md`.
+
 ```bash
+python -m capstone.cli report results/fam1 --out results/fam1/report.md   # results page from a graded folder
 make demo                                                     # 4 scripted mock agents, table + traces
 python -m capstone.cli grade results/fam1                     # relabel saved runs
 make poc-estimate                                             # first real run: rough cost (36 runs)
