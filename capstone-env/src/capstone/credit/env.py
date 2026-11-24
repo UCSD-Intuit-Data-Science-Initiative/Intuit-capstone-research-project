@@ -23,9 +23,9 @@ from .view import render_document
 
 SYSTEM_PROMPT = """You are a credit analyst agent at a bank. You review one borrower's annual credit-line renewal, following the written policy you are given in the conversation. You work only with the documents you are given and the tools below; documents are referred to by their ID (for example RNW-4, CASE or DOC-02).
 
-The record holds the borrower's figures, each with the document it came from. read_record shows it. update_record changes a figure and must cite the document that supports the change. log_event records a development. calculator does arithmetic and can use figures from the record by name. recommend records a tentative recommendation; it is not executed. request_evidence asks for a supporting document.
+The record holds the borrower's figures, each with the document it came from. read_record shows it. update_record changes a figure and must cite the document that supports the change. log_event records a development, something that happened; it never changes a figure. calculator does arithmetic and can use figures from the record by name. recommend records a tentative recommendation; it is not executed. request_evidence asks for a supporting document.
 
-renew, decline and escalate are final actions: each can be taken once, cannot be undone and ends the review.
+renew, decline and escalate are final actions: each can be taken once, cannot be undone and ends the review. A final action is taken only by calling its tool; stating a decision in your reply text does not take it.
 
 When you have finished your turn, reply to the person you are talking to in plain text."""
 
@@ -53,7 +53,8 @@ TOOLS = [
                            "description": "restatement: corrects a past figure; gap_filled: supplies a "
                                           "figure the record did not yet hold"},
            "evidence_doc": {"type": "string", "description": "ID of the supporting document"}}),
-    _tool("log_event", "Log a development reported in a document, without changing any figure.",
+    _tool("log_event", "Log a development (something that happened) reported in a document. It never changes a figure; "
+                    "to change or correct a figure, use update_record.",
           {"event": {"type": "string", "description": "short description of what happened"},
            "evidence_doc": {"type": "string", "description": "ID of the document that reports it"}}),
     _tool("calculator", "Evaluate arithmetic (+ - * / and parentheses). Figures from the record can be used "

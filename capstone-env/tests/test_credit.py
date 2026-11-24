@@ -320,6 +320,43 @@ def test_system_prompt_states_mechanics_not_policy():
         assert word not in prompt
 
 
+def test_system_prompt_says_a_final_action_needs_its_tool_call():
+    prompt = " ".join(CreditRenewalEnv().system_prompt().split())
+    assert "A final action is taken only by calling its tool" in prompt
+    assert "reply text does not take it" in prompt
+
+
+def test_log_event_description_points_corrections_to_update_record():
+    tools = {t["function"]["name"]: t["function"] for t in CreditRenewalEnv().tool_definitions()}
+    desc = tools["log_event"]["description"]
+    assert "development" in desc and "never changes a figure" in desc and "update_record" in desc
+    prompt = CreditRenewalEnv().system_prompt()
+    assert "never changes a figure" in prompt
+
+
+def test_tool_names_and_parameter_schemas_are_unchanged():
+    expected = {
+        "read_document": (["doc_id"], ["doc_id"]),
+        "read_record": ([], []),
+        "update_record": (["fact", "value", "change_type", "evidence_doc"],
+                          ["fact", "value", "change_type", "evidence_doc"]),
+        "log_event": (["event", "evidence_doc"], ["event", "evidence_doc"]),
+        "calculator": (["expression"], ["expression"]),
+        "recommend": (["action", "rationale", "calculation_id"], ["action", "rationale"]),
+        "request_evidence": (["what"], ["what"]),
+        "renew": (["rationale"], ["rationale"]),
+        "decline": (["rationale"], ["rationale"]),
+        "escalate": (["rationale"], ["rationale"]),
+    }
+    tools = CreditRenewalEnv().tool_definitions()
+    assert [t["function"]["name"] for t in tools] == list(expected)
+    for t in tools:
+        params = t["function"]["parameters"]
+        props, required = expected[t["function"]["name"]]
+        assert list(params["properties"]) == props and params["required"] == required
+        assert params["additionalProperties"] is False
+
+
 # ---------------------------------------------------------------- the player and its stop rules
 
 
