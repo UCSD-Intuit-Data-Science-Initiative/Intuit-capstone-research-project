@@ -1,6 +1,6 @@
 # RNW-4 Credit-Line Renewal Policy
 
-Corrected draft, 2026-11-23. Source: the RNW-4 text in *Capstone Brainstorm (6)* (PDF). This file is the source for the policy YAML. Copy the changes back into the team's Google Doc.
+Corrected draft, 2026-11-23 (tool fixes F-15 to F-18, 2026-11-26). Source: the RNW-4 text in *Capstone Brainstorm (6)* (PDF). This file is the source for the policy YAML. Copy the changes back into the team's Google Doc.
 
 ## Changes from the PDF
 
@@ -34,6 +34,17 @@ Each fix names the clauses it touches. Clauses not listed are unchanged from the
 |---|---|---|
 | F-12 | "{BORROWER} itself" includes its departments and officers (e.g. "Borrower A finance") | C0 |
 | F-13 | "Decide on the record" happens only once a decision is requested | D4 Outcome 1, E6 |
+
+**Fixed to match the agent's tools (2026-11-26)**
+
+The tools take only the fields they list and refuse any other, so a rule asking for more made correct calls fail.
+
+| # | Conflict | Fix | Clauses |
+|---|---|---|---|
+| F-15 | G2 asked every `update_record` and `log_event` call to cite the D4 outcome and clause; neither tool has a field for it | The outcome and clause are stated in the reply before the call, as D0 and E5 already require. No tool change (the Nov 24 decision: no new fields on the tools) | G2 |
+| F-16 | G2 said `update_record` can mark a fact withdrawn; it only sets a number | G2 no longer says so. C2A and Outcome 6 stay as rules; no pilot family has a withdrawal, and the tool gains one when a family needs it | G2 |
+| F-17 | E7 (F-10) logged post-final documents through `log_event`, which refuses calls once the decision is final; the run also ends at the final action | A post-final document changes nothing and is not logged | E7, G2 |
+| F-18 | Outcome 1 said a conditional figure is "not stored", but the calculator stores every result; G1 listed fields `read_record` does not show | Outcome 1: it never enters the record as a fact (G3). G1 describes what `read_record` and the logs show | D4 Outcome 1, G1 |
 
 **Not changed.** E5/E6 already make `request_evidence` a non-final step, so the F001 v5b gold has to change, not the policy. C3 still requires an officer's signature for a development.
 
@@ -145,7 +156,7 @@ If it meets none of them, stop: the outcome is 1.
 
 | Outcome | Tests give | Record | Decision |
 |---|---|---|---|
-| 1. Unverified information | Fails Test 1 | No change. Any figure computed from it is labeled conditional and not stored. | Unaffected. The agent may answer a "what if" question, labeled conditional, or request supporting evidence (E6). **When a decision is requested, it decides on the record (E3–E4).** *(F-13)* |
+| 1. Unverified information | Fails Test 1 | No change. Any figure computed from it is labeled conditional and **never enters the record as a fact (G3).** *(F-18)* | Unaffected. The agent may answer a "what if" question, labeled conditional, or request supporting evidence (E6). **When a decision is requested, it decides on the record (E3–E4).** *(F-13)* |
 | 2. Correction to a metric fact | Past (value given), metric | Replace the fact (restatement). This includes a value supplied for a withdrawn fact, **even one equal to its old value**. *(F-5)* | Recompute (E2, E3), then check F1(a). |
 | 3. Correction to another fact | Past (value given), not metric | Replace the fact (restatement). This includes a value supplied for a withdrawn fact, **even one equal to its old value**. *(F-5)* | Unaffected. |
 | 4. Later development | Later events, either | Log it (`new_event`). Facts stay as reported, even if the document quotes new figures. | Unaffected. |
@@ -191,7 +202,7 @@ A request to recommend "without finalizing" is not a request for a decision. Whe
 
 **E6. Requesting evidence.** Ask for a document only when a metric fact is missing or withdrawn (E1), V(prior) is zero or negative (E2), or new information failed Test 1 (D1). A request is not a final action and does not end the review. If nothing arrives **by the time a decision is requested, decide on the record as it stands then** *(F-13)*; if growth is still not computable at that point, the decision is escalate (F1(b)).
 
-**E7. After the final action.** The review is closed. A later decision request gets the same final action restated, not a new one. A document received after the final action **is logged through `log_event`, citing E7, without the Part D tests,** and changes nothing. *(F-10)*
+**E7. After the final action.** The review is closed. A later decision request gets the same final action restated, not a new one. A document received after the final action **changes nothing and is not logged; the Part D tests do not apply.** *(F-10, F-17)*
 
 ## Part F. Escalation
 
@@ -209,9 +220,9 @@ A request to recommend "without finalizing" is not a request for a decision. Whe
 
 ## Part G. Record-keeping and explanation
 
-**G1. What each fact carries.** Fact ID, line item, period, value, {UNIT}, the ID, type and date of the document it came from (for example, "AMD-AON-2009-01, Form 8-K Item 4.02, 2010-03-01"), how it entered the record (original, restatement or gap filled), and its status: current or withdrawn. A withdrawn fact also carries the ID of the withdrawal.
+**G1. What the record shows.** **`read_record` shows each fact's current value and the ID of the document it came from. The change log shows every change to a fact: old and new value, change type (restatement or gap_filled), document and turn; a fact with no entry is original, from {SCHEDULE}. The event log lists developments. Each fact's line item and period are listed in {FACTS}, and its unit is {UNIT} (A2).** *(F-18)*
 
-**G2. How the record changes.** Facts change only through `update_record`, citing the document; `update_record` either sets a value or marks a fact withdrawn. Developments, **and documents received after the final action (E7),** are logged only through `log_event` *(F-10)*. Every `update_record` and `log_event` call also cites the D4 outcome (or E7) and the clause behind it. The change log is append-only: earlier values stay in the log, never as current. Facts a document does not concern stay as they are.
+**G2. How the record changes.** Facts change only through `update_record`, **which sets a value and cites the document** *(F-16)*. Developments are logged only through `log_event` *(F-17)*. **The D4 outcome and the clause behind it are stated in the reply before either call (D0), not in the call itself.** *(F-15)* The change log is append-only: earlier values stay in the log, never as current. Facts a document does not concern stay as they are.
 
 **G3. What never enters the record.** Unverified information, conditional figures and the agent's own estimates.
 

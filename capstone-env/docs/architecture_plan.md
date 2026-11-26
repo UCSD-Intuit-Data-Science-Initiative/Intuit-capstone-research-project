@@ -57,12 +57,12 @@ several agents with review.
 | 6 Review + multiple agents | — | later | Preparer → decision → reviewer; review rules; `skipped_review` |
 | 7 Policy swap | `policy/rnw-4` | replaced by RNW-4: merged (#10, Nov 24) | Every family on RNW-4 (see "PR 7 notes") |
 | Langfuse scores | `policy/rnw-4`, then `main` | #11 went into `policy/rnw-4` by mistake; #12 put the same commit on `main` (merged Nov 24) | Scores on Langfuse traces |
-| Mentor round 1: mechanics wording | `stage6/mechanics-wording` | reviewed; PR #13 open (Nov 24) | Prompt and `log_event` wording |
-| Mentor round 2: expected state | `stage6/expected-state` | reviewed; PR #14 open | Schema 5, `expected_state` on every turn |
-| Mentor round 3: grader labels | `stage6/grader-labels` | reviewed; PR #15 open | `run_uid`, `label_id`, primary problem, `detail` |
-| Mentor round 4: turn state | `stage6/turn-state` | reviewed; PR #16 open (contains #13-#15) | Per-turn decision state |
-| Mentor round 5: Langfuse IDs | `observe/langfuse-ids` | reviewed; PR #17 open (contains #13-#16) | IDs, primary problem and per-turn scores in Langfuse; thinking beside each tool call |
-| Mentor round 6: docs | `docs/mentor-feedback-round` | PR #18 open | This plan, CLAUDE.md, README |
+| Mentor round 1: mechanics wording | `stage6/mechanics-wording` | merged (#13, Nov 24) | Prompt and `log_event` wording |
+| Mentor round 2: expected state | `stage6/expected-state` | merged (#14, Nov 24) | Schema 5, `expected_state` on every turn |
+| Mentor round 3: grader labels | `stage6/grader-labels` | merged (#15, Nov 24) | `run_uid`, `label_id`, primary problem, `detail` |
+| Mentor round 4: turn state | `stage6/turn-state` | merged (#16, Nov 25), with the `not_recomputed` fix | Per-turn decision state |
+| Mentor round 5: Langfuse IDs | `observe/langfuse-ids` | merged (#17, Nov 25) | IDs, primary problem and per-turn scores in Langfuse; thinking beside each tool call |
+| Mentor round 6: docs | `docs/mentor-feedback-round` | merged (#18, Nov 25) | This plan, CLAUDE.md, README |
 
 PRs 1-4 are the proof of concept. After PR 3 a full run can be demonstrated with mock agents at no
 API cost.
@@ -203,10 +203,10 @@ family tests O6-O9 or F1(b) at the final decision.
 ## Mentor code-review round (Nov 24 2026)
 
 Answers the code-review feedback in CLAUDE.md (status per point is in the feedback table above). Five
-changes, each built by its own agent on its own branch, reviewed, and open as PRs #13-#17 (docs: #18). All
-six are based on `main`; #16 and #17 contain the earlier ones, so any merge order gives the same result.
-With all of them together: 1032 tests pass, `make family-check` clean. Runs made before a change used the
-older behaviour.
+changes, each built by its own agent on its own branch and reviewed, merged as PRs #13-#17 (docs: #18) on
+Nov 24-25. Before #16 merged, `not_recomputed` was fixed so a calculation on the new figure counts before or
+after the record write. On merged `main`: 1035 tests pass, `make family-check` clean. Runs made before a
+change used the older behaviour.
 
 **1. Mechanics wording** (`stage6/mechanics-wording`). The system prompt now says: "A final action is
 taken only by calling its tool; stating a decision in your reply text does not take it." The `log_event`
@@ -301,13 +301,16 @@ of `observe.py` is the source of truth.
   out when empty. Tool calls are matched by tool-call id, else by order within the turn. It is the model's
   own stated thinking, not proof of why it chose the tool, and many models return none.
 - No new flags: `cli langfuse <exp> --scores-only` and `run-families ... --langfuse` send everything.
-- Tested with fake clients and against the installed SDK's signatures (langfuse 5.2.0). Not yet tried
-  against the real project.
+- Tested with fake clients and against the installed SDK's signatures (langfuse 5.2.0), and on Nov 24 with
+  one graded run sent to the real project and read back: IDs, scores and thinking arrived as described.
 - Built on Opus: the Sonnet agent given this task was stopped twice by an automatic safety filter before
   it wrote anything (the filter's label was `reasoning_extraction`).
 
-**Next runs.** Qwen on RNW-4, all four families, k = 3 (216 runs, overnight, free); then one Claude smoke run
-and the 36-run Claude run.
+**Next runs.** Qwen on RNW-4, all four families, k = 3 (216 runs, free); then one Claude smoke run and the
+36-run Claude run. The Nov 23 Qwen runs took 2.4 and 3.4 hours per 36 runs, so 216 runs take about 15-20
+hours (k = 1 about 5-7). A local Ollama model needs `OLLAMA_API_KEY` (any value) in `.env` and its own
+models file in the results folder (the Nov 23 one: `results/2026-11-23_1811_.../models.yaml`). Runs made
+before the RNW-4 tool fixes (F-15 to F-18, Nov 26) saw the older policy text.
 **Next build rounds.** PR 5 gates; PR 6 review and multiple agents (waits on the team decision on single
 writer vs proposals).
 **Further label splits proposed, not built.** `wrong_change_type` by direction; `tool_misuse` as one label per
@@ -315,30 +318,29 @@ kind; `no_decision` details `named_tool_in_text` and `stopped_early`.
 
 ## Open questions
 
-- Who adds the keys (Anthropic + Langfuse) to `capstone-env/.env` for the Claude run. (Model chosen: `claude`.)
+- Who adds the Anthropic key to `capstone-env/.env` for the Claude run (model chosen: `claude`). The Langfuse keys work.
 - Settled Nov 24: stay on Langfuse. LangSmith was considered (one dev project plus dataset and experiments)
   and not adopted, because the team has free Langfuse credits.
-- What counts as asking for proof: the `request_evidence` tool only, or plain text too.
+- Settled Nov 16: asking for proof means the `request_evidence` tool only; a plain-text request is left for human review.
 - Limits (15 / 60 / 120 s / 3) — confirm.
 - Multi-agent: single record writer vs proposals; which setup after the pilot (B or C).
-- Langfuse, after #17: try it once against the real project (it was tested with fake clients only). Stale
-  scores can stay behind and need deleting by hand: the `problem` score of a label a regrade no longer
+- Langfuse: tried against the real project on Nov 24 (one graded run; its session
+  `2026-11-24_1430_pr17-langfuse-check_S01-v2` can be deleted). Stale scores can stay behind and need deleting by hand: the `problem` score of a label a regrade no longer
   finds, and position-keyed `problem` scores already sent for older runs (such as the RNW-4 smoke sessions)
   once those runs are re-scored.
 - Langfuse access: Dhruvi and Victor still need an invite to the project (team action).
-- RNW-4 rule G2 asks every `update_record` and `log_event` call to cite the outcome and clause, and mentions
-  marking a fact withdrawn; the tools have no field for either and reject extra fields. Team decision: add
-  optional fields, or change G2.
+- Settled Nov 26: the RNW-4 text now matches the tools (F-15 to F-18 in docs/policy/RNW-4.md). The outcome
+  and clause are stated in the reply, not in the tool call (G2); `update_record` only sets a value, and C2A /
+  Outcome 6 withdrawals need a tool change when a family has one; post-final documents are not logged (E7).
 - The two Langfuse sessions shared in #11 are public and carry real company names as tags that are described
   as team-only.
 - Claude's thinking may come back empty unless a summary is requested; check in the first Claude smoke run.
-- `docs/policy/RNW-4_clause_map_F001.md`: the version 1 row predates decision F-1 and still says escalate.
 
 ## Resuming
 
 ```bash
-git fetch && git checkout main && git pull      # PRs 1-4 and RNW-4 are merged; the Nov 24 round is PRs #13-#18
-cd capstone-env && make build && make test      # 1032 tests once #13-#18 are merged (583 on main before them)
+git fetch && git checkout main && git pull      # PRs 1-4, RNW-4 and the Nov 24 round (#13-#18) are merged
+cd capstone-env && make build && make test      # 1035 tests
 make demo                                        # 4 scripted mock agents through F001, no keys
 make poc-estimate                                # cost of the first real run; make poc runs it
 make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model
