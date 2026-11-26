@@ -8,24 +8,53 @@ Setup: put ``LANGFUSE_PUBLIC_KEY`` and ``LANGFUSE_SECRET_KEY`` in ``.env`` (and
 ``LANGFUSE_BASE_URL`` for a region other than the default or a self-hosted server), then
 ``make run ARGS="... --langfuse"`` or ``python -m capstone.cli langfuse results/<exp>``.
 
-Each run becomes one Langfuse trace (deterministic id, so re-sending a run reuses its id):
+Each run becomes one Langfuse trace (deterministic id, so re-sending a run reuses its id). The trace
+carries the run's ``run_uid`` (``trace.run_uid``: unique across experiments, unlike ``run_id``) as a
+tag ``run_uid:<id>`` and in its metadata; the trace id is still seeded by experiment and ``run_id``.
   customer / analyst messages  events
-  agent                        generations (model, tokens, cost; latency in metadata)
-  tool                         tool observations (args in, result out; WARNING if refused)
+  agent                        generations (model, tokens, cost; latency in metadata; the model's
+                               saved thinking, if any, in the output under ``reasoning``)
+  tool                         tool observations (args in, result out; WARNING if refused). The
+                               metadata names the model call that asked for the tool and copies
+                               what that call thought and said (see ``tool_issuers``):
+                                 decided_by_event  that agent event's index ``i`` in the trace
+                                 decided_by_match  "tool_call_id" or "turn_order" (how it was found)
+                                 reasoning         the call's saved thinking (left out when empty)
+                                 said              the call's text reply (left out when empty)
+                               These are copied from the trace file as they are, not shortened; the
+                               agent never sees them (the harness never sends thinking back).
   anything else                events, with the event's fields as metadata (new event types
                                added later, such as record writes, still show up)
 Times in Langfuse are the export time; the run's own timings stay in each step's metadata.
 
 Graded runs (``<out>/labels/<run_id>.json``, written by ``grade`` or ``run-families``) also get the
 grader's result as Langfuse scores on the trace:
-  passed                   BOOLEAN      the run's overall pass; comment lists its problem labels
+  passed                   BOOLEAN      the run's overall pass; comment lists its problem labels;
+                                        metadata also holds ``run_uid`` and ``turn_states`` (the
+                                        per-turn decision state) when the grade has them
   decision                 CATEGORICAL  the decision label (valid, over_escalated, ...); comment = its note
   max_severity             NUMERIC      highest label severity (0 = no problems)
   final_record_failures    NUMERIC      how many final-record failures; comment names them
   invalid_changes_accepted NUMERIC      invalid record changes that went through; comment = attempted
-  problem                  CATEGORICAL  one per label with severity > 0; comment = turn and note
-Score ids are deterministic, so re-sending updates a score instead of adding a copy. A regrade that
-finds fewer problems leaves the extra ``problem`` scores from before; delete those in Langfuse.
+  primary_problem          CATEGORICAL  the run's primary problem label, or ``none``; comment = its
+                                        detail and turn; metadata = ``primary_label_id``
+  first_problem_turn       NUMERIC      the primary problem's turn (not sent when None)
+  lean_stated              NUMERIC      turns with a stated lean (from ``state_summary``)
+  lean_correct             NUMERIC      ... that equal the expected lean
+  lean_wrong               NUMERIC      ... that differ from it
+  first_wrong_lean_turn    NUMERIC      first turn with a wrong lean (not sent when None)
+  problem                  CATEGORICAL  one per label with severity > 0; comment = turn, [detail] and
+                                        note; metadata includes ``label_id``, ``detail`` and ``role``
+The scores from primary_problem down to first_wrong_lean_turn are sent only when the grade file has
+the field (grade files written before run_uid and label ids have none of them, and export as before).
+Score ids are deterministic (sha256 of the Langfuse trace id and a key), so re-sending updates a score
+instead of adding a copy. A ``problem`` score's key is its ``label_id``, which a regrade of the same
+trace keeps, so a label never takes over another label's score; a grade file without label ids keys
+them by position in the list (``problem/0``, ``problem/1``, ...). What a regrade can still leave behind
+in Langfuse (delete it there by hand): the ``problem`` score of a label the regrade no longer finds;
+positional ``problem`` scores sent from an old grade file, once the run is re-scored with label ids;
+and a ``first_problem_turn`` or ``first_wrong_lean_turn`` score when the regrade makes that field None
+(``primary_problem`` = ``none`` and ``lean_wrong`` = 0 then show the current result).
 ``python -m capstone.cli langfuse results/<exp> --scores-only`` adds scores to runs already sent.
 
 Credit runs also carry the real source behind the renamed borrower (team-only: the agent never saw
@@ -42,7 +71,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from .trace import load_trace
+from .trace import load_trace, run_uid
 
 REQUIRED_ENV = ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY")
 TAG_FIELDS = ("case_id", "case_version", "case_type", "mode")
@@ -111,6 +140,8 @@ def trace_tags(trace: dict, source: dict | None = None) -> list[str]:
     if model.get("name"):
         tags.append(f"model:{model['name']}")
     tags.append(f"status:{trace.get('status')}")
+    if trace.get("run_id"):
+        tags.append(f"run_uid:{run_uid(trace)}")
     source = source or {}
     for key, tag in (("company", "company"), ("source_id", "source"), ("borrower_shown", "borrower"),
                      ("policy_id", "policy")):
@@ -123,7 +154,46 @@ def _metadata(event: dict, skip: Iterable[str]) -> dict:
     return {k: v for k, v in event.items() if k not in set(skip)}
 
 
-def _send_event(root: Any, event: dict) -> None:
+def tool_issuers(events: list[dict]) -> dict[int, tuple[dict, str]]:
+    """For each ``tool`` event (by its position in ``events``): the ``agent`` event (model call) that asked
+    for it, and how it was matched.
+
+    The agent loop (agent.py) writes one ``agent`` event per model call, listing its ``tool_calls``, then one
+    ``tool`` event per call, each with the call's ``id``, before the next model call. A tool event with an
+    ``id`` is matched to the latest earlier model call of the same turn whose ``tool_calls`` list that id
+    ("tool_call_id"; the latest, since some providers reuse ids such as ``call_0`` across calls). A tool
+    event without an id goes to the latest earlier model call of the same turn that asked for a tool
+    ("turn_order"). A tool event whose id no earlier model call of its turn lists is left unmatched.
+    """
+    out: dict[int, tuple[dict, str]] = {}
+    callers: list[dict] = []            # agent events that asked for tools, latest last
+    for n, e in enumerate(events):
+        if e.get("type") == "agent" and e.get("tool_calls"):
+            callers.append(e)
+        elif e.get("type") == "tool":
+            same_turn = [a for a in reversed(callers) if a.get("turn") == e.get("turn")]
+            if e.get("id") is not None:
+                match = next((a for a in same_turn if any(c.get("id") == e["id"] for c in a["tool_calls"])), None)
+                how = "tool_call_id"
+            else:
+                match, how = (same_turn[0] if same_turn else None), "turn_order"
+            if match is not None:
+                out[n] = (match, how)
+    return out
+
+
+def issuer_metadata(agent: dict, how: str) -> dict:
+    """What a tool observation's metadata says about the model call that asked for it. Empty thinking or
+    text is left out rather than sent as an empty string; nothing is shortened."""
+    meta: dict[str, Any] = {"decided_by_event": agent.get("i"), "decided_by_match": how}
+    if agent.get("reasoning"):
+        meta["reasoning"] = agent["reasoning"]
+    if agent.get("text"):
+        meta["said"] = agent["text"]
+    return meta
+
+
+def _send_event(root: Any, event: dict, issuer: tuple[dict, str] | None = None) -> None:
     kind, turn = event["type"], event.get("turn")
     prefix = f"turn {turn}: " if turn is not None else ""
     if kind == "agent":
@@ -144,7 +214,8 @@ def _send_event(root: Any, event: dict) -> None:
             name=f"{prefix}tool {event.get('name')}", as_type="tool", input=event.get("args"),
             output=_json_or_text(event.get("result")),
             level="DEFAULT" if event.get("executed", True) else "WARNING",
-            metadata=_metadata(event, ("type", "turn", "name", "args", "result")),
+            metadata={**_metadata(event, ("type", "turn", "name", "args", "result")),
+                      **(issuer_metadata(*issuer) if issuer else {})},
         )
         obs.end()
     elif kind in ("customer", "analyst"):
@@ -160,11 +231,15 @@ def grade_scores(grade: dict) -> list[dict]:
     problems = [l for l in grade.get("labels", []) if l.get("severity", 0) > 0]
     decision = next((l for l in grade.get("labels", []) if l.get("group") == "decision"), {})
     failures = grade.get("final_record_failures") or []
+    passed_meta = {k: grade.get(k) for k in ("family_id", "version", "version_type", "mode", "note", "family_changed")}
+    if "run_uid" in grade:
+        passed_meta["run_uid"] = grade["run_uid"]
+    if grade.get("turn_states"):
+        passed_meta["turn_states"] = grade["turn_states"]
     scores = [
         {"key": "passed", "name": "passed", "value": 1.0 if grade.get("passed") else 0.0, "data_type": "BOOLEAN",
          "comment": ", ".join(sorted({l["label"] for l in problems})) or "no problems",
-         "metadata": {k: grade.get(k) for k in ("family_id", "version", "version_type", "mode", "note",
-                                                 "family_changed")}},
+         "metadata": passed_meta},
         {"key": "decision", "name": "decision", "value": str(grade.get("decision")), "data_type": "CATEGORICAL",
          "comment": decision.get("note")},
         {"key": "max_severity", "name": "max_severity", "value": float(grade.get("max_severity", 0)),
@@ -175,12 +250,47 @@ def grade_scores(grade: dict) -> list[dict]:
          "value": float(grade.get("accepted_invalid_changes", 0)), "data_type": "NUMERIC",
          "comment": f"{grade.get('attempted_invalid_changes', 0)} attempted"},
     ]
+    scores += _primary_and_state_scores(grade)
     for n, l in enumerate(problems):
         turn = f"turn {l['turn']}" if l.get("turn") is not None else "end of run"
-        scores.append({"key": f"problem/{n}", "name": "problem", "value": l["label"], "data_type": "CATEGORICAL",
-                       "comment": f"{turn}: {l.get('note') or ''}".rstrip(": "),
-                       "metadata": {k: l.get(k) for k in ("group", "severity", "turn", "accepted", "recovered",
-                                                           "evidence")}})
+        detail = f" [{l['detail']}]" if l.get("detail") else ""
+        scores.append({"key": f"problem/{l['label_id']}" if l.get("label_id") else f"problem/{n}",
+                       "name": "problem", "value": l["label"], "data_type": "CATEGORICAL",
+                       "comment": f"{turn}{detail}: {l.get('note') or ''}".rstrip(": "),
+                       "metadata": {**{k: l.get(k) for k in ("group", "severity", "turn", "accepted", "recovered",
+                                                              "evidence")},
+                                    **{k: l[k] for k in ("label_id", "detail", "role") if k in l}}})
+    return scores
+
+
+def _primary_and_state_scores(grade: dict) -> list[dict]:
+    """The primary problem and the decision-state counts, each only when the grade file has the field."""
+    scores: list[dict] = []
+    if "primary_label" in grade:
+        primary = grade.get("primary_label")
+        comment = None
+        if primary:
+            label = next((l for l in grade.get("labels", []) if l.get("label_id")
+                          and l.get("label_id") == grade.get("primary_label_id")), {})
+            turn = grade.get("first_problem_turn", label.get("turn"))
+            comment = ", ".join(p for p in (label.get("detail"),
+                                            f"turn {turn}" if turn is not None else "end of run") if p)
+        scores.append({"key": "primary_problem", "name": "primary_problem", "value": primary or "none",
+                       "data_type": "CATEGORICAL", "comment": comment,
+                       "metadata": {"primary_label_id": grade.get("primary_label_id")}})
+    if grade.get("first_problem_turn") is not None:
+        scores.append({"key": "first_problem_turn", "name": "first_problem_turn",
+                       "value": float(grade["first_problem_turn"]), "data_type": "NUMERIC"})
+    summary = grade.get("state_summary")
+    if summary:
+        of = f"of {summary['turns']} turns" if summary.get("turns") is not None else None
+        for name in ("lean_stated", "lean_correct", "lean_wrong"):
+            if summary.get(name) is not None:
+                scores.append({"key": name, "name": name, "value": float(summary[name]), "data_type": "NUMERIC",
+                               "comment": of})
+        if summary.get("first_wrong_lean_turn") is not None:
+            scores.append({"key": "first_wrong_lean_turn", "name": "first_wrong_lean_turn",
+                           "value": float(summary["first_wrong_lean_turn"]), "data_type": "NUMERIC"})
     return scores
 
 
@@ -207,18 +317,21 @@ def export_trace(trace: dict, client: Any, experiment: str | None = None,
     trace_id = langfuse_trace_id(client, run_id, experiment)
     model = trace.get("model") or {}
     source = source_info(trace)
+    uid = run_uid(trace)
     with client.start_as_current_observation(
         trace_context={"trace_id": trace_id}, name=run_id, as_type="agent",
         input={k: trace.get(k) for k in ("case_id", "case_version", "case_type", "mode", "repeat")},
         metadata={"model": model.get("name"), "model_id": model.get("model"), "env": trace.get("env"),
-                  "case_hash": trace.get("case_hash"), "started_at": trace.get("started_at"),
+                  "case_hash": trace.get("case_hash"), "started_at": trace.get("started_at"), "run_uid": uid,
                   **({"source": source} if source else {})},
     ) as root:
         with propagate(trace_name=run_id, session_id=experiment, tags=trace_tags(trace, source),
-                       metadata={"run_id": run_id, "status": str(trace.get("status")),
+                       metadata={"run_id": run_id, "run_uid": uid, "status": str(trace.get("status")),
                                  **({"company": str(source["company"])} if source.get("company") else {})}):
-            for event in trace.get("events", []):
-                _send_event(root, event)
+            events = trace.get("events", [])
+            issuers = tool_issuers(events)
+            for n, event in enumerate(events):
+                _send_event(root, event, issuers.get(n))
             error_lines = (trace.get("error") or "").strip().splitlines()
             root.update(output=trace.get("summary"),
                         level="ERROR" if trace.get("status") == "error" else "DEFAULT",
