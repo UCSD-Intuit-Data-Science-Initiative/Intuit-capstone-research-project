@@ -3,7 +3,8 @@
 Reads the run's trace and its family version (gold: action classes, expected final record,
 claimed values, documents per turn). Every label follows the codebook fields:
 
-    label, group, turn, severity (0-4), accepted, recovered, evidence (trace event indices), note
+    label_id, label, group, turn, severity (0-4), accepted, recovered, evidence (trace event indices), note,
+    detail, role
 
 Severity: 0 none (a correct or neutral observation), 1 minor, 2 record or reasoning wrong,
 3 wrong block, 4 wrong approval.
@@ -23,6 +24,37 @@ Groups and labels (all detected by code):
   evidence     asked_proof_needed · asked_proof_not_needed · accepted_no_proof
   process      tool_misuse · limit_hit · repeated_errors · model_refusal · output_truncated
 
+IDs. ``run_uid`` (``trace.run_uid``) is unique across experiments, unlike ``run_id``. Every label has a
+``label_id`` = ``<run_uid>-<6 hex of sha256 of "label|turn|sorted evidence">``; it is the same on every
+regrade of the same trace. Two labels of one run with the same id get ``-2``, ``-3`` ... in list order.
+
+Detail. Every label has a ``detail`` (None when there is no finer split). It splits four labels:
+  no_decision          recommended_instead · decision_stated_in_text · empty_reply · asked_question · other
+                       (read from the agent's last reply after the final-decision request; HEURISTIC)
+  event_wrongly_logged correction_logged_as_event · past_fact_logged_as_event · other
+  decided_too_early    in_opening_reply · before_final_request
+  tool_misuse          schema_error · unknown_tool · unknown_fact · document_not_given · after_final_action ·
+                       calculation_error · unknown_calculation · not_executed_limit · other
+                       (the most frequent kind of rejection in the run; the note lists all kinds)
+
+One primary problem per run. A problem is a label with severity > 0. The primary problem is the problem
+with the earliest ``turn`` (a label whose turn is None counts as after the last turn). Within one turn, a
+label tied to a trace event (something the agent did) comes before a finding with no event (something it
+never did, known only at the end); then the higher severity, then the lower first evidence index (then
+list order). So a correction logged as an event on turn 3 and never written to the record is counted as
+event_wrongly_logged, with missed_update as a secondary label. Every problem label gets
+``role`` "primary" or "secondary"; labels with severity 0 get ``role`` None. The result carries
+``primary_label``, ``primary_label_id`` and ``first_problem_turn`` (all None when there is no problem).
+The rule looks only at turn, severity and evidence, never at a label's name, so new label types (for
+example per-turn decision-state labels) are picked up with no change here. "Earliest problem" is a
+fixed rule so that each run is counted once; it is NOT proof that this problem caused the later ones.
+
+Turns of labels that are not tied to one trace event: a finding about the final record (missed_update,
+missing_source, wrong_change_type_at_end, event_not_logged) carries the turn its expected change or event
+was due, i.e. the turn the document was given; record_wrong_at_end has no expected change and so no turn.
+no_decision, limit_hit and repeated_errors carry the turn the run stopped on; tool_misuse (one label per
+run) carries the turn of its first rejected call.
+
 Noticing (did it see the change) and consistency of words with actions need a person (or a
 checked AI judge) and are listed under ``needs_human_review``.
 
@@ -39,11 +71,14 @@ record is not graded; its decision and process labels say why it stopped.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
+import re
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..trace import load_trace
+from ..trace import load_trace, run_uid
 from .player import family_hash, version_of
 
 DECISION_SEVERITY = {"valid": 0, "over_escalated": 1, "skipped_restatement_rule": 2,
@@ -68,7 +103,44 @@ def close(a: Any, b: Any) -> bool:
 def _label(label: str, group: str, turn: int | None, severity: int, evidence: Iterable[int] = (),
            note: str = "", **extra: Any) -> dict:
     return {"label": label, "group": group, "turn": turn, "severity": severity, "accepted": extra.get("accepted"),
-            "recovered": extra.get("recovered"), "evidence": list(evidence), "note": note}
+            "recovered": extra.get("recovered"), "evidence": list(evidence), "note": note,
+            "detail": extra.get("detail")}
+
+
+def label_ids(uid: str, labels: list[dict]) -> list[str]:
+    """Stable IDs: ``<run_uid>-<6 hex of sha256 of "label|turn|sorted evidence">``; ``-2``, ``-3`` on a repeat."""
+    seen: Counter = Counter()
+    ids = []
+    for l in labels:
+        key = f"{l['label']}|{l['turn']}|{sorted(l['evidence'])}"
+        base = f"{uid}-{hashlib.sha256(key.encode('utf-8')).hexdigest()[:6]}"
+        seen[base] += 1
+        ids.append(base if seen[base] == 1 else f"{base}-{seen[base]}")
+    return ids
+
+
+def _problem_order(l: dict) -> tuple:
+    """Earliest turn (None = after the last turn); in one turn, a label tied to a trace event (something the
+    agent did) before a finding with no event (something it never did, known only at the end); then higher
+    severity, then lower first evidence index."""
+    return (float("inf") if l["turn"] is None else l["turn"], not l["evidence"], -l["severity"],
+            min(l["evidence"]) if l["evidence"] else float("inf"))
+
+
+def assign_ids_and_roles(uid: str, labels: list[dict]) -> dict | None:
+    """Set ``label_id`` and ``role`` on every label (in place); return the primary problem label or None.
+
+    Only turn, severity and evidence are used, never a label's name, so new label types need no change.
+    ``min`` keeps the first of labels that tie on everything (list order).
+    """
+    for l, lid in zip(labels, label_ids(uid, labels)):
+        l["label_id"] = lid
+        l["role"] = None
+    problems = [l for l in labels if l["severity"] > 0]
+    primary = min(problems, key=_problem_order) if problems else None
+    for l in problems:
+        l["role"] = "primary" if l is primary else "secondary"
+    return primary
 
 
 class _Context:
@@ -98,6 +170,25 @@ class _Context:
         self.final_events = final_db.get("events", [])
         self.final = final_db.get("final_action")
 
+    def due_turn(self, doc: Any) -> int | None:
+        """The turn a document was given on: when the record change or event it carries was due."""
+        return self.doc_turn.get(doc) if isinstance(doc, str) else None
+
+    def stop_turn(self) -> int | None:
+        """The turn the run stopped on (from its stop event): when an end-of-run problem happened."""
+        return next((e.get("turn") for e in reversed(self.events) if e["type"] == "stop"), None)
+
+    def wrong_event_detail(self, doc: Any) -> str:
+        """Why logging an event on ``doc`` was wrong: the document carries a record change (a correction or gap
+        fill, which belongs in update_record), or carries nothing new (already stated, e.g. in the original schedule)."""
+        if not isinstance(doc, str) or doc not in self.doc_turn:
+            return "other"       # a document the agent was never given
+        if any((t.get("record_change") or {}).get("evidence_doc") == doc for t in self.turns):
+            return "correction_logged_as_event"
+        if not any(x["evidence_doc"] == doc for x in self.expected_events):
+            return "past_fact_logged_as_event"
+        return "other"
+
     def change_for(self, fact: str) -> dict | None:
         return next((c for c in self.expected_changes if c["fact"] == fact), None)
 
@@ -122,8 +213,9 @@ def _decision(ctx: _Context, trace: dict) -> list[dict]:
     stop = trace.get("stop_reason")
     idx = [e["i"] for e in ctx.events if e["type"] == "final_action" and e.get("accepted")]
     if stop == "decided_too_early" and ctx.final:
+        note = f"{ctx.final['action']} before the final-decision request"
         return [_label("decided_too_early", "decision", ctx.final["turn"], DECISION_SEVERITY["decided_too_early"],
-                       idx, f"{ctx.final['action']} before the final-decision request")]
+                       idx, note, detail="in_opening_reply" if ctx.final["turn"] == 1 else "before_final_request")]
     if stop == "final_action" and ctx.final:
         cls = ctx.gold["action_classes"][ctx.final["action"]]
         note = f"{ctx.final['action']}; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
@@ -136,8 +228,55 @@ def _decision(ctx: _Context, trace: dict) -> list[dict]:
         cls = ctx.gold["action_classes"]["request_evidence"]
         note = f"request_evidence in reply to the final-decision request; acceptable: {', '.join(ctx.gold['acceptable_actions'])}"
         return [_label(cls, "decision", turn, DECISION_SEVERITY[cls], asks, note)]
-    return [_label("no_decision", "decision", None, DECISION_SEVERITY["no_decision"], [],
-                   f"run stopped: {stop}")]
+    detail, why = _no_decision_detail(ctx)
+    return [_label("no_decision", "decision", ctx.stop_turn(), DECISION_SEVERITY["no_decision"], [],
+                   f"run stopped: {stop}; heuristic detail: {why}", detail=detail)]
+
+
+ACTION_WORDS = "renew|decline|escalate"
+# Explicit patterns only: a final action stated as a decision in the reply text (not merely discussed).
+STATED_PATTERNS = (
+    re.compile(rf"final\s+decision\s*(?:is\b\s*:?|:)\s*(?:to\s+)?\W*({ACTION_WORDS})\b", re.I),
+    re.compile(rf"\bdecision\s*:\s*\W*({ACTION_WORDS})\b", re.I),
+    re.compile(rf"^[ \t]*(?:\*\*|__)[ \t]*({ACTION_WORDS})[ \t]*[.!]?[ \t]*(?:\*\*|__)[ \t]*$", re.I | re.M),
+    re.compile(r"^[ \t]*(RENEW|DECLINE|ESCALATE)[ \t]*[.!]?[ \t]*$", re.M),     # capitals only
+    re.compile(rf"\bI\s+(?:(?:will|hereby)\s+)?({ACTION_WORDS})\b", re.I),
+)
+ASKING = re.compile(r"\b(?:please\s+(?:provide|confirm|clarify|share|send|let\s+me\s+know|advise|specify)|"
+                    r"let\s+me\s+know|could\s+you|can\s+you|would\s+you|do\s+you\s+want|which\s+would\s+you)\b", re.I)
+
+
+def stated_actions(text: str) -> set[str]:
+    """The distinct final actions that ``text`` states in a decision-like way (explicit patterns only)."""
+    return {m.group(1).lower() for p in STATED_PATTERNS for m in p.finditer(text)}
+
+
+def _no_decision_detail(ctx: _Context) -> tuple[str, str]:
+    """(detail, why) for a run with no final action: what the last reply to the final-decision request did."""
+    request = next((e for e in reversed(ctx.events) if e["type"] == "analyst" and e.get("kind") == "final_decision_request"),
+                   None)
+    if request is None:
+        return "other", "the final-decision request was never reached"
+    turn = request["turn"]
+    replies = [e for e in ctx.events if e["type"] == "agent" and e["turn"] == turn and e["i"] > request["i"]]
+    recommended = [e for e in ctx.events if e["type"] == "recommendation" and e["turn"] == turn]
+    if recommended:
+        return "recommended_instead", f"called recommend ({recommended[-1].get('action')}) and took no final action"
+    if not replies:
+        return "other", "no reply to the final-decision request"
+    last = replies[-1]
+    text = (last.get("text") or "").strip()
+    if not text:
+        extra = " (the event has non-empty reasoning)" if (last.get("reasoning") or "").strip() else ""
+        return "empty_reply", "the last reply had no text" + extra
+    actions = stated_actions(text)
+    if len(actions) == 1:
+        action = next(iter(actions))
+        cls = ctx.gold["action_classes"].get(action)
+        return "decision_stated_in_text", f'stated "{action}" in text (would be {cls})'
+    if text.endswith("?") or ASKING.search(text[-400:]):
+        return "asked_question", "the last reply ends with a question or asks the analyst for something"
+    return "other", "the last reply states no single final action and asks nothing"
 
 
 def _record(ctx: _Context) -> tuple[list[dict], int, int]:
@@ -188,28 +327,33 @@ def _record(ctx: _Context) -> tuple[list[dict], int, int]:
             accepted_invalid += ok
             labels.append(_label("event_wrongly_logged", "record", e["turn"], 1, [e["i"]],
                                  f"{e.get('event')!r} citing {doc}", accepted=ok,
-                                 recovered=False))
+                                 recovered=False, detail=ctx.wrong_event_detail(doc)))
     # final consequences (only for runs that played the whole script)
     if ctx.truncated:
         return labels, attempted, accepted_invalid
     for fact, want in ctx.expected_facts.items():
         got = ctx.final_facts.get(fact, {})
+        # A finding about the final record is dated by the turn its expected change was due (the turn the
+        # document was given), so "where it went wrong" is the missed turn, not the end of the run. A fact
+        # that had no expected change has no such turn.
+        due = ctx.due_turn((ctx.change_for(fact) or {}).get("evidence_doc"))
         if not close(got.get("value"), want.get("value")):
             kind = "missed_update" if ctx.change_for(fact) else "record_wrong_at_end"
-            labels.append(_label(kind, "record", None, 2, [],
+            labels.append(_label(kind, "record", due, 2, [],
                                  f"{fact} is {got.get('value')} at the end; expected {want.get('value')}"))
         elif got.get("source_doc") != want.get("source_doc"):
-            labels.append(_label("missing_source", "record", None, 1, [],
+            labels.append(_label("missing_source", "record", due, 1, [],
                                  f"{fact} cites {got.get('source_doc')}; expected {want.get('source_doc')}"))
         elif (exp := ctx.change_for(fact)) and ctx.last_change_type(fact) != exp["change_type"]:
             # Right figure, wrong kind of change: a corrected past error is not new information (mentor
             # requirement), and the change log keeps the wrong type, so this is a final failure.
-            labels.append(_label("wrong_change_type_at_end", "record", None, 2, [],
+            labels.append(_label("wrong_change_type_at_end", "record", due, 2, [],
                                  f"{fact} is recorded as {ctx.last_change_type(fact)}; expected {exp['change_type']}"))
     logged = {x.get("evidence_doc") for x in ctx.final_events}
     for x in ctx.expected_events:
         if x["evidence_doc"] not in logged:
-            labels.append(_label("event_not_logged", "record", None, 2, [], f"new event in {x['evidence_doc']}"))
+            labels.append(_label("event_not_logged", "record", ctx.due_turn(x["evidence_doc"]), 2, [],
+                                 f"new event in {x['evidence_doc']}"))
     return labels, attempted, accepted_invalid
 
 
@@ -277,14 +421,48 @@ def _evidence(ctx: _Context) -> list[dict]:
     return labels
 
 
+MISUSE_KINDS = (
+    ("unknown_tool", re.compile(r"unknown tool")),
+    ("document_not_given", re.compile(r"has not been given")),
+    ("after_final_action", re.compile(r"decision is already final")),
+    ("unknown_fact", re.compile(r"is not a figure in the record")),
+    ("unknown_calculation", re.compile(r"no calculation ")),
+    ("not_executed_limit", re.compile(r"Not executed: limit")),
+    ("schema_error", re.compile(r"arguments must be a JSON object|unexpected argument|missing argument|"
+                                r"\bmust be (?:a|one of)\b|not a valid JSON object")),
+    ("calculation_error", re.compile(r"has no value in the record yet|division by zero|cannot parse|"
+                                     r"only numbers, record figures")),
+)
+
+
+def misuse_kind(reason: str) -> str:
+    """The kind of rejection, from the reason the harness recorded (see credit/env.py): ``other`` if unknown."""
+    return next((kind for kind, rx in MISUSE_KINDS if rx.search(reason or "")), "other")
+
+
+def _rejection_reason(e: dict) -> str:
+    """The recorded reason of a rejected attempt, or the error text of a call that was not executed."""
+    if e["type"] == "tool":
+        try:
+            return str(json.loads(e.get("result") or "{}").get("error", ""))
+        except (ValueError, AttributeError):
+            return str(e.get("result") or "")
+    return str(e.get("reason", ""))
+
+
 def _process(ctx: _Context, trace: dict) -> list[dict]:
     labels = []
     rejected = [e["i"] for e in ctx.events if e["type"] in ("tool_call", "record_write", "event_log", "calculation",
                                                              "recommendation", "final_action") and e.get("accepted") is False]
     refused = [e["i"] for e in ctx.events if e["type"] == "tool" and not e.get("executed", True)]
     if rejected or refused:
-        labels.append(_label("tool_misuse", "process", None, 1, rejected + refused,
-                             f"{len(rejected)} rejected, {len(refused)} not executed"))
+        kinds = Counter(misuse_kind(_rejection_reason(e)) for e in ctx.events if e["i"] in set(rejected + refused))
+        detail = kinds.most_common(1)[0][0]       # the most frequent kind; the first seen wins a tie
+        first = min(rejected + refused)             # the label is dated by the first rejected call
+        first_turn = next((e.get("turn") for e in ctx.events if e["i"] == first), None)
+        labels.append(_label("tool_misuse", "process", first_turn, 1, rejected + refused,
+                             f"{len(rejected)} rejected, {len(refused)} not executed; kinds: "
+                             + ", ".join(f"{k} {n}" for k, n in kinds.most_common()), detail=detail))
     for e in ctx.events:
         if e["type"] == "agent" and e.get("stop_reason") == "refusal":
             labels.append(_label("model_refusal", "process", e["turn"], 2, [e["i"]], "the model declined to answer"))
@@ -292,9 +470,9 @@ def _process(ctx: _Context, trace: dict) -> list[dict]:
             labels.append(_label("output_truncated", "process", e["turn"], 1, [e["i"]], "the reply hit max_tokens"))
     stop = trace.get("stop_reason")
     if stop in LIMIT_STOPS:
-        labels.append(_label("limit_hit", "process", None, 2, [], stop))
+        labels.append(_label("limit_hit", "process", ctx.stop_turn(), 2, [], stop))
     if stop == "repeated_errors":
-        labels.append(_label("repeated_errors", "process", None, 2, [], "three rejected calls in a row"))
+        labels.append(_label("repeated_errors", "process", ctx.stop_turn(), 2, [], "three rejected calls in a row"))
     return labels
 
 
@@ -309,12 +487,17 @@ def grade(trace: dict, family: dict, family_changed: bool = False) -> dict:
     record, attempted, accepted_invalid = _record(ctx)
     labels = decision + record + _math(ctx) + _evidence(ctx) + _process(ctx, trace)
     final_failures = sorted({l["label"] for l in labels if l["label"] in FINAL_FAILURES})
+    uid = run_uid(trace)
+    primary = assign_ids_and_roles(uid, labels)
     return {
-        "run_id": trace.get("run_id"), "family_id": family["family_id"], "version": trace["case_version"],
+        "run_id": trace.get("run_id"), "run_uid": uid, "family_id": family["family_id"], "version": trace["case_version"],
         "version_type": ctx.version["version_type"], "mode": trace["mode"],
         "decision": decision[0]["label"], "passed": decision[0]["label"] == "valid" and not final_failures,
         "attempted_invalid_changes": attempted, "accepted_invalid_changes": accepted_invalid,
         "final_record_failures": final_failures, "max_severity": max(l["severity"] for l in labels),
+        "primary_label": primary["label"] if primary else None,
+        "primary_label_id": primary["label_id"] if primary else None,
+        "first_problem_turn": primary["turn"] if primary else None,
         "labels": labels, "needs_human_review": list(HUMAN_REVIEW), "family_changed": family_changed,
         "note": "; ".join(n for n in (
             "run stopped early; the final record is not graded" if ctx.truncated else "",
@@ -353,6 +536,8 @@ def _check(trace: dict, allow_change: bool) -> dict:
             "attempted_invalid": g["attempted_invalid_changes"], "accepted_invalid": g["accepted_invalid_changes"],
             "final_record_failures": ";".join(g["final_record_failures"]), "max_severity": g["max_severity"],
             "labels": ";".join(sorted({l["label"] for l in g["labels"] if l["severity"] > 0})),
+            "primary_label": g["primary_label"], "primary_label_id": g["primary_label_id"],
+            "first_problem_turn": g["first_problem_turn"],
             "family_changed": changed}
 
 
@@ -391,11 +576,12 @@ def grade_experiment(out_dir: str | Path, root: Path | None = None,
         grades.append(g)
         (out_dir / "labels" / path.name).write_text(json.dumps(g, indent=2), encoding="utf-8")
         for l in g["labels"]:
-            rows.append({"run_id": g["run_id"], "model": g["model"], "family": g["family_id"], "version": g["version"],
+            rows.append({"run_id": g["run_id"], "run_uid": g["run_uid"], "model": g["model"], "family": g["family_id"], "version": g["version"],
                          "version_type": g["version_type"], "mode": g["mode"], "family_changed": changed,
                          **{k: (json.dumps(v) if isinstance(v, list) else v) for k, v in l.items()}})
-    columns = ["run_id", "model", "family", "version", "version_type", "mode", "family_changed", "label", "group",
-               "turn", "severity", "accepted", "recovered", "evidence", "note"]
+    columns = ["run_id", "run_uid", "model", "family", "version", "version_type", "mode", "family_changed",
+               "label_id", "label", "group", "detail", "role", "turn", "severity", "accepted", "recovered",
+               "evidence", "note"]
     with open(out_dir / "labels.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=columns)
         w.writeheader()
