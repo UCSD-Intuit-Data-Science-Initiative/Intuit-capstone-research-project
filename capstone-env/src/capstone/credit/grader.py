@@ -70,8 +70,9 @@ else None (not stated). ``turn_states`` has one entry per played turn::
 
 reaction_ok: for update_record, an accepted write of the turn's record_change fact to its new value citing
 its evidence document, made in THIS turn; for log_event, an accepted event log citing the turn's notice,
-made in this turn. recomputed: on a metric_changed turn, an accepted calculation after that write, in this
-turn, that used the changed fact at its new value (or the new figure as a number).
+made in this turn. recomputed: on a metric_changed turn whose change was applied in it, an accepted calculation
+in this turn, before or after the write, that used the changed fact at its new value (or the new figure as a
+number; an agent may calculate from the document and then write the record).
 ``state_summary`` is ``{"turns", "lean_stated", "lean_correct", "lean_wrong", "first_wrong_lean_turn"}``
 (lean_wrong counts every lean_ok False, including a wrong final action, which has no lean_wrong label).
 Both are ``[]`` / None for a family file without ``expected_state`` (schema 4), and then no state labels.
@@ -90,7 +91,7 @@ State labels (group ``state``):
                    applied: no label here, missed_update covers it. late_event_log: the same for log_event.
   not_recomputed   severity 1, on a metric_changed turn whose change was applied (then or later), the next
                    recommendation or final action after the write came with no calculation on the updated
-                   figures in between, and no math label (stale_calculation_cited, used_stale_figure,
+                   figures since the document was given (before or after the write), and no math label (stale_calculation_cited, used_stale_figure,
                    used_claimed_figure, decided_on_wrong_record) already covers that recommendation or
                    final action.
 No state label changes ``passed``, ``decision`` or any other label.
@@ -539,13 +540,21 @@ def _observe_lean(events: list[dict], kind: str) -> tuple[str | None, list[int],
     return None, [], None
 
 
-def _calc_after(ctx: _Context, write: dict, rc: dict, before: int | None = None) -> dict | None:
-    """The first accepted calculation after ``write`` on the updated figures: one that used the changed fact at
-    its new value, or the new figure as a number. In the write's own turn, or before event index ``before``."""
+def _given_at(ctx: _Context, turn: int) -> int:
+    """Event index of the analyst message of ``turn``: the moment that turn's documents were given."""
+    return next((e["i"] for e in ctx.events if e["type"] == "analyst" and e["turn"] == turn), -1)
+
+
+def _calc_on_new_figure(ctx: _Context, rc: dict, due: int, before: int | None = None) -> dict | None:
+    """The first accepted calculation on the updated figures: one that used the changed fact at its new value,
+    or the new figure as a number. It counts from the moment the document was given (turn ``due``), before or
+    after the record write (an agent may calculate from the document and then write it). Within turn ``due``,
+    or, with ``before``, up to that event index."""
+    since = _given_at(ctx, due)
     for e in ctx.events:
-        if not (e["type"] == "calculation" and e.get("accepted") and e["i"] > write["i"]):
+        if not (e["type"] == "calculation" and e.get("accepted") and e["i"] > since):
             continue
-        if (e["turn"] != write["turn"]) if before is None else (e["i"] >= before):
+        if (e["turn"] != due) if before is None else (e["i"] >= before):
             continue
         used = e.get("facts_used", {})
         if (rc["fact"] in used and close(used[rc["fact"]], rc["new_value"])) or any(close(x, rc["new_value"]) for x in e.get("numbers", [])):
@@ -587,7 +596,7 @@ def _state(ctx: _Context, math_labels: list[dict]) -> tuple[list[dict], dict | N
         recomputed = None
         if ex["metric_changed"]:
             rc, w = turn.get("record_change"), applied.get(t)
-            recomputed = bool(rc and w and w[1] == t and _calc_after(ctx, w[0], rc) is not None)
+            recomputed = bool(rc and w and w[1] == t and _calc_on_new_figure(ctx, rc, t) is not None)
         states.append({"turn": t, "kind": turn["kind"], "expected_lean": ex["lean"], "pin_moved": ex["pin_moved"],
                        "observed_lean": lean, "lean_ok": lean_ok, "reaction": ex["reaction"],
                        "reaction_ok": reaction_ok, "recomputed": recomputed})
@@ -634,7 +643,7 @@ def _not_recomputed(ctx: _Context, played: list[int], exp: dict, applied: dict, 
         write = applied[t][0]
         nxt = next((e for e in ctx.events if e["i"] > write["i"] and e.get("accepted") is True
                     and e["type"] in ("recommendation", "final_action")), None)
-        if nxt is None or _calc_after(ctx, write, rc, before=nxt["i"]):
+        if nxt is None or _calc_on_new_figure(ctx, rc, t, before=nxt["i"]):
             continue
         covered = False
         for l in math_labels:

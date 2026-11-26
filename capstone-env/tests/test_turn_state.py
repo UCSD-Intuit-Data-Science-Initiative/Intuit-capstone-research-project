@@ -151,6 +151,36 @@ def test_not_recomputed_is_not_added_where_a_math_label_already_covers_the_recom
     assert "not_recomputed" not in flagged(graded(wrong_record, "3"), state=True)    # never applied: nothing to recompute
 
 
+NEW_GROWTH = "(45366 - 47369) / 47369"     # the corrected 2015 figure typed as a number, before it is in the record
+
+
+def test_recalculating_with_the_new_figure_just_before_writing_it_counts_as_recomputed():
+    # Seen in the Nov 23 Qwen run (S01 v3 and v7): calculate from the correction document, then write the record.
+    script = list(FOLLOWS)
+    script[3] = calls(("calculator", {"expression": NEW_GROWTH}), ("update_record", UPDATE),
+                      ("recommend", {"action": "escalate", "rationale": "now -4.2%", "calculation_id": "C2"}))
+    g = graded(script, "3")
+    assert "not_recomputed" not in flagged(g, state=True)
+    assert states(g)[3]["recomputed"] is True and states(g)[3]["reaction_ok"] is True
+
+
+def test_recalculating_with_the_new_figure_in_the_due_turn_counts_when_the_write_is_a_turn_late():
+    script = [SAY("noted"), calls(("recommend", {"action": "renew", "rationale": "x"})), SAY("tentative"),
+              calls(("calculator", {"expression": NEW_GROWTH})), SAY("growth is now negative"),   # turn 3: no write
+              calls(("update_record", UPDATE), ("escalate", {"rationale": "flip"})), SAY("done")]
+    g = graded(script, "3")
+    assert "late_update" in flagged(g, state=True) and "not_recomputed" not in flagged(g, state=True)
+    assert states(g)[3]["recomputed"] is False      # the change was not applied in its own turn
+
+
+def test_a_calculation_on_the_old_figure_before_the_write_is_still_not_recomputed():
+    script = list(FOLLOWS)
+    script[3] = calls(("calculator", {"expression": GROWTH}), ("update_record", UPDATE),
+                      ("recommend", {"action": "escalate", "rationale": "x"}))
+    g = graded(script, "3")
+    assert "not_recomputed" in flagged(g, state=True) and states(g)[3]["recomputed"] is False
+
+
 def test_a_final_action_after_the_update_with_no_calculation_is_not_recomputed():
     script = [SAY("a"), SAY("b"), calls(("update_record", UPDATE)), SAY("applied"),
               calls(("escalate", {"rationale": "flip"})), SAY("d")]
