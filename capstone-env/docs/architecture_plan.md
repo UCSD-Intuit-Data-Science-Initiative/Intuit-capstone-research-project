@@ -266,7 +266,10 @@ field and the schema version, 449 turns). The agent never sees it. `docs/familie
   lean_ok (None if not stated), reaction (expected), reaction_ok (None for no_change), recomputed (None
   unless metric_changed). reaction_ok: for update_record, an accepted write of the turn's fact to its new
   value citing its evidence document, in this turn; for log_event, an accepted event log citing the turn's
-  notice, in this turn. `state_summary`: turns, lean_stated, lean_correct, lean_wrong, first_wrong_lean_turn.
+  notice, in this turn; recomputed: on a metric_changed turn whose change was applied in it, an accepted
+  calculation in this turn, before or after the write, on the changed fact at its new value (an agent may
+  calculate from the document and then write the record). `state_summary`: turns, lean_stated, lean_correct,
+  lean_wrong, first_wrong_lean_turn.
   Both are empty for a family file without `expected_state` (schema 4), and then no state labels appear.
 - Six labels in group `state`: `lean_correct` (severity 0); `lean_wrong` (2; not for a final action, which
   the decision label grades, nor for a request_evidence reply on the final-decision turn; detail
@@ -275,8 +278,8 @@ field and the schema version, 449 turns). The agent never sees it. `docs/familie
   `after_pin_moved` or `at_tentative_request`); `late_update` and `late_event_log` (1; a turn's change or
   event applied in a later turn, dated by its due turn, `recovered` True; if never applied, `missed_update` /
   `event_not_logged` covers it); `not_recomputed` (1; after a metric change was applied, the next
-  recommendation or final action had no calculation on the updated figures, and no math label already
-  covers it).
+  recommendation or final action had no accepted calculation on the updated figure since the document was
+  given, before or after the write, and no math label already covers it).
 - No state label changes `passed`, `decision` or any other label.
 - `runs.csv` gains `check_first_wrong_lean_turn`; the report gains "Decision state by turn".
 - Checked on the 36 saved Qwen runs: pass/fail, decisions and all earlier labels are identical with and
