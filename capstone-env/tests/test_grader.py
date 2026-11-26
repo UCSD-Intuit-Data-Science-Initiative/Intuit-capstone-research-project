@@ -32,9 +32,15 @@ def graded(script, vid, mode="unscripted", path=F001):
     return grader.grade(trace.data, fam)
 
 
-def flagged(g):
-    """Labels with a severity above 0 (problems), as a sorted list."""
-    return sorted(l["label"] for l in g["labels"] if l["severity"] > 0)
+def flagged(g, state=False):
+    """Labels with a severity above 0 (problems), as a sorted list. The per-turn state labels (group
+    "state", tests/test_turn_state.py) are left out unless ``state`` is True: these tests are about the others."""
+    return sorted(l["label"] for l in g["labels"] if l["severity"] > 0 and (state or l["group"] != "state"))
+
+
+def observed(g):
+    """Labels with severity 0 and not in group "state"."""
+    return [l["label"] for l in g["labels"] if l["severity"] == 0 and l["group"] != "state"]
 
 
 def label(g, name):
@@ -47,7 +53,7 @@ def label(g, name):
 def test_good_agent_passes_with_no_problem_labels():
     g = graded(AGENTS["good"][1], "3")
     assert g["passed"] and g["decision"] == "valid" and flagged(g) == []
-    assert [l["label"] for l in g["labels"] if l["severity"] == 0] == ["valid", "correct_update"]
+    assert observed(g) == ["valid", "correct_update"]
     assert (g["attempted_invalid_changes"], g["accepted_invalid_changes"], g["final_record_failures"]) == (0, 0, [])
 
 
@@ -203,7 +209,7 @@ def test_new_event_must_be_logged_not_written_as_a_figure():
     logged = [SAY("a"), SAY("b"), TC("log_event", event="sale of a business unit", evidence_doc="DOC-02"),
               SAY("logged"), TC("decline", rationale="below"), SAY("d")]
     g = graded(logged, "8")
-    assert g["passed"] and [l["label"] for l in g["labels"] if l["severity"] == 0] == ["valid", "correct_event_log"]
+    assert g["passed"] and observed(g) == ["valid", "correct_event_log"]
     forgot = [SAY("a"), SAY("b"), SAY("noted"), TC("decline", rationale="below"), SAY("d")]
     g = graded(forgot, "8")
     assert flagged(g) == ["event_not_logged"] and not g["passed"]
@@ -235,7 +241,7 @@ def test_every_label_has_the_codebook_fields(mode):
     for l in g["labels"]:
         assert set(l) == {"label", "group", "turn", "severity", "accepted", "recovered", "evidence", "note",
                           "label_id", "detail", "role"}
-        assert l["group"] in ("decision", "record", "math", "evidence", "process") and 0 <= l["severity"] <= 4
+        assert l["group"] in ("decision", "record", "math", "evidence", "process", "state") and 0 <= l["severity"] <= 4
     assert len(g["needs_human_review"]) == 2
 
 
@@ -271,14 +277,14 @@ def oracle_script(fam: dict, version: dict, mode: str) -> list[dict]:
         if values[cur] is not None and values[prior] is not None:
             calls.append({"name": "calculator", "args": {"expression": f"({cur} - {prior}) / {prior}"}})
             n_calc += 1
-        valid = [a for a, c in ((turn.get("checkpoint") or {}).get("action_classes") or {}).items() if c == "valid"]
+        lean = turn["expected_state"]["lean"]       # the expected state: what to say whenever a tentative step is asked
         if turn["kind"] == "final_decision_request":
             act = next(a for a in version["gold"]["acceptable_actions"] if a in ("renew", "decline", "escalate"))
             calls.append({"name": act, "args": {"rationale": "per policy"}})
-        elif valid == ["request_evidence"]:
+        elif turn["kind"] == "tentative_decision_request" and lean == "waiting_for_evidence":
             calls.append({"name": "request_evidence", "args": {"what": "the missing figure"}})
-        elif turn["kind"] == "tentative_decision_request" and valid:
-            calls.append({"name": "recommend", "args": {"action": valid[0], "rationale": "per policy"}
+        elif turn["kind"] == "tentative_decision_request":
+            calls.append({"name": "recommend", "args": {"action": lean, "rationale": "per policy"}
                           | ({"calculation_id": f"C{n_calc}"} if n_calc else {})})
         if calls:
             script.append({"tool_calls": calls})
@@ -299,11 +305,19 @@ def test_the_oracle_covers_every_conversation():
 def test_an_agent_that_follows_the_gold_passes_with_no_problem_labels(path, vid, mode):
     """Guards against false failures: any grader change that fails correct behaviour breaks this."""
     fam = load_family(path)
-    g = graded(oracle_script(fam, next(v for v in fam["versions"] if v["version_id"] == vid), mode), vid, mode, path)
+    version = next(v for v in fam["versions"] if v["version_id"] == vid)
+    g = graded(oracle_script(fam, version, mode), vid, mode, path)
     assert g["passed"] and g["decision"] == "valid" and flagged(g) == [], (g["decision"], flagged(g))
     assert (g["attempted_invalid_changes"], g["accepted_invalid_changes"], g["final_record_failures"]) == (0, 0, [])
     assert g["primary_label"] is None and g["primary_label_id"] is None and g["first_problem_turn"] is None
     assert all(l["role"] is None for l in g["labels"])
+    # the same agent is in the expected decision state on every turn
+    states = g["turn_states"]
+    assert len(states) == len(version["conversations"][mode]["turns"]) and g["state_summary"]["lean_wrong"] == 0
+    assert all(s["lean_ok"] is not False for s in states) and any(s["lean_ok"] for s in states)
+    assert all(s["reaction_ok"] is not False for s in states) and all(s["recomputed"] is not False for s in states)
+    assert any(s["reaction_ok"] for s in states) == any(s["reaction"] != "no_change" for s in states)
+    assert {l["label"] for l in g["labels"] if l["group"] == "state"} <= {"lean_correct"}
 
 
 # ---------------------------------------------------------------- wired into the runner and the CLI
@@ -316,7 +330,7 @@ def test_run_families_writes_labels_and_uses_the_grader(tmp_path):
     row = next(csv.DictReader((out / "runs.csv").open()))
     assert row["check_checker"] == "grader_v0" and row["check_decision"] == "no_decision" and row["passed"] == "False"
     labels = list(csv.DictReader((out / "labels.csv").open()))
-    assert [l["label"] for l in labels] == ["no_decision"]
+    assert [l["label"] for l in labels if l["group"] != "state"] == ["no_decision"]
     saved = json.loads(next((out / "labels").glob("*.json")).read_text())
     assert saved["family_id"] == "F001" and saved["decision"] == "no_decision"
 
@@ -466,7 +480,7 @@ def test_an_event_logged_wrongly_early_is_the_primary_problem_not_the_no_decisio
     assert flagged(g) == ["event_wrongly_logged", "missed_update", "no_decision"]
     assert g["primary_label"] == "event_wrongly_logged" and g["first_problem_turn"] == 3
     assert g["primary_label_id"] == label(g, "event_wrongly_logged")["label_id"]
-    assert {l["label"]: l["role"] for l in g["labels"]} == {
+    assert {l["label"]: l["role"] for l in g["labels"] if l["group"] != "state"} == {
         "event_wrongly_logged": "primary", "missed_update": "secondary", "no_decision": "secondary"}
 
 

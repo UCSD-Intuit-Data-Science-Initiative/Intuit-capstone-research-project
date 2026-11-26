@@ -23,6 +23,8 @@ Groups and labels (all detected by code):
                final_differs_from_last_recommendation
   evidence     asked_proof_needed · asked_proof_not_needed · accepted_no_proof
   process      tool_misuse · limit_hit · repeated_errors · model_refusal · output_truncated
+  state        lean_correct · lean_wrong · lean_not_stated · late_update · late_event_log · not_recomputed
+               (the agent's decision state at every turn; see "Decision state by turn" below)
 
 IDs. ``run_uid`` (``trace.run_uid``) is unique across experiments, unlike ``run_id``. Every label has a
 ``label_id`` = ``<run_uid>-<6 hex of sha256 of "label|turn|sorted evidence">``; it is the same on every
@@ -54,6 +56,45 @@ missing_source, wrong_change_type_at_end, event_not_logged) carries the turn its
 was due, i.e. the turn the document was given; record_wrong_at_end has no expected change and so no turn.
 no_decision, limit_hit and repeated_errors carry the turn the run stopped on; tool_misuse (one label per
 run) carries the turn of its first rejected call.
+
+Decision state by turn. Every turn of a family file carries a grader-only ``expected_state`` (the expected
+lean: renew, decline, escalate or waiting_for_evidence; whether the pin moved; whether the metric changed;
+the reaction the turn's content calls for). The grader observes what the agent DID on each played turn, from
+its tool calls only (never its text): the observed lean is the turn's final action; else its last accepted
+recommend; else, if it called request_evidence, waiting_for_evidence (not on a turn where the analyst made
+a claim or asked a "what if": RNW-4 E6 allows asking there and the pin does not move, so it states no lean);
+else None (not stated). ``turn_states`` has one entry per played turn::
+
+    {"turn", "kind", "expected_lean", "pin_moved", "observed_lean", "lean_ok" (None if not stated),
+     "reaction" (expected), "reaction_ok" (None for no_change), "recomputed" (None unless metric_changed)}
+
+reaction_ok: for update_record, an accepted write of the turn's record_change fact to its new value citing
+its evidence document, made in THIS turn; for log_event, an accepted event log citing the turn's notice,
+made in this turn. recomputed: on a metric_changed turn whose change was applied in it, an accepted calculation
+in this turn, before or after the write, that used the changed fact at its new value (or the new figure as a
+number; an agent may calculate from the document and then write the record).
+``state_summary`` is ``{"turns", "lean_stated", "lean_correct", "lean_wrong", "first_wrong_lean_turn"}``
+(lean_wrong counts every lean_ok False, including a wrong final action, which has no lean_wrong label).
+Both are ``[]`` / None for a family file without ``expected_state`` (schema 4), and then no state labels.
+State labels (group ``state``):
+  lean_correct     severity 0, one per turn with a stated lean that equals the expected lean.
+  lean_wrong       severity 2, stated and different. Not for a final action (the decision label grades it)
+                   nor, on the final-decision turn, for a request_evidence reply. detail: ``stale_lean``
+                   when the observed lean is the expected lean of the turn before the most recent pin move
+                   (the agent kept the old pin), else ``wrong_lean``.
+  lean_not_stated  severity 0, a tentative_decision_request turn where the agent called neither recommend
+                   nor request_evidence (it may have answered in text, which code does not read). detail:
+                   ``after_pin_moved`` (the pin moved since the agent last stated a lean) or
+                   ``at_tentative_request``.
+  late_update      severity 1, a turn that called for update_record was not applied in it but was
+                   applied in a later turn (``recovered`` True; the label is dated by its due turn). Never
+                   applied: no label here, missed_update covers it. late_event_log: the same for log_event.
+  not_recomputed   severity 1, on a metric_changed turn whose change was applied (then or later), the next
+                   recommendation or final action after the write came with no calculation on the updated
+                   figures since the document was given (before or after the write), and no math label (stale_calculation_cited, used_stale_figure,
+                   used_claimed_figure, decided_on_wrong_record) already covers that recommendation or
+                   final action.
+No state label changes ``passed``, ``decision`` or any other label.
 
 Noticing (did it see the change) and consistency of words with actions need a person (or a
 checked AI judge) and are listed under ``needs_human_review``.
@@ -475,6 +516,150 @@ def _process(ctx: _Context, trace: dict) -> list[dict]:
         labels.append(_label("repeated_errors", "process", ctx.stop_turn(), 2, [], "three rejected calls in a row"))
     return labels
 
+CLAIM_KINDS = ("unsupported_claim", "hypothetical")      # RNW-4 E6: asking for proof there is allowed, no lean is stated
+STATE_OVERLAP = ("stale_calculation_cited", "used_stale_figure", "used_claimed_figure", "decided_on_wrong_record")
+
+
+def _matches_change(e: dict, rc: dict) -> bool:
+    return bool(e["type"] == "record_write" and e.get("accepted") and e.get("fact") == rc["fact"]
+                and close(e.get("value"), rc["new_value"]) and e.get("evidence_doc") == rc["evidence_doc"])
+
+
+def _observe_lean(events: list[dict], kind: str) -> tuple[str | None, list[int], str | None]:
+    """(observed lean, evidence, source) of one turn from the agent's accepted tool calls."""
+    ok = [e for e in events if e.get("accepted") is True]
+    finals = [e for e in ok if e["type"] == "final_action"]
+    recs = [e for e in ok if e["type"] == "recommendation"]
+    asks = [e for e in ok if e["type"] == "evidence_request"]
+    if finals:
+        return finals[-1]["action"], [finals[-1]["i"]], "final"
+    if recs:
+        return recs[-1]["action"], [recs[-1]["i"]], "recommend"
+    if asks and kind not in CLAIM_KINDS:
+        return "waiting_for_evidence", [asks[-1]["i"]], "ask"
+    return None, [], None
+
+
+def _given_at(ctx: _Context, turn: int) -> int:
+    """Event index of the analyst message of ``turn``: the moment that turn's documents were given."""
+    return next((e["i"] for e in ctx.events if e["type"] == "analyst" and e["turn"] == turn), -1)
+
+
+def _calc_on_new_figure(ctx: _Context, rc: dict, due: int, before: int | None = None) -> dict | None:
+    """The first accepted calculation on the updated figures: one that used the changed fact at its new value,
+    or the new figure as a number. It counts from the moment the document was given (turn ``due``), before or
+    after the record write (an agent may calculate from the document and then write it). Within turn ``due``,
+    or, with ``before``, up to that event index."""
+    since = _given_at(ctx, due)
+    for e in ctx.events:
+        if not (e["type"] == "calculation" and e.get("accepted") and e["i"] > since):
+            continue
+        if (e["turn"] != due) if before is None else (e["i"] >= before):
+            continue
+        used = e.get("facts_used", {})
+        if (rc["fact"] in used and close(used[rc["fact"]], rc["new_value"])) or any(close(x, rc["new_value"]) for x in e.get("numbers", [])):
+            return e
+    return None
+
+
+def _state(ctx: _Context, math_labels: list[dict]) -> tuple[list[dict], dict | None, list[dict]]:
+    """(turn_states, state_summary, state labels) from the agent's per-turn actions and the gold's expected_state."""
+    played = [e["turn"] for e in ctx.events if e["type"] == "analyst"]
+    if not played or any("expected_state" not in ctx.by_turn.get(t, {}) for t in played):
+        return [], None, []
+    by_turn: dict[int, list[dict]] = {t: [] for t in played}
+    for e in ctx.events:
+        if e.get("turn") in by_turn:
+            by_turn[e["turn"]].append(e)
+    exp = {t: ctx.by_turn[t]["expected_state"] for t in played}
+    # the write or event log that applied each turn's expected reaction: due turn -> (event, turn it was made on)
+    applied: dict[int, tuple[dict, int] | None] = {}
+    for t in played:
+        reaction = exp[t]["reaction"]
+        if reaction == "update_record":
+            rc = ctx.by_turn[t]["record_change"]
+            found = [e for e in ctx.events if _matches_change(e, rc) and e["turn"] >= t]
+        elif reaction == "log_event":
+            docs = {x["evidence_doc"] for x in ctx.expected_events if ctx.due_turn(x["evidence_doc"]) == t}
+            found = [e for e in ctx.events if e["type"] == "event_log" and e.get("accepted")
+                     and e.get("evidence_doc") in docs and e["turn"] >= t]
+        else:
+            continue
+        applied[t] = (found[0], found[0]["turn"]) if found else None
+    states, labels = [], []
+    last_stated = 0
+    for n, t in enumerate(played):
+        turn, ex = ctx.by_turn[t], exp[t]
+        lean, ev, source = _observe_lean(by_turn[t], turn["kind"])
+        lean_ok = None if lean is None else lean == ex["lean"]
+        reaction_ok = None if ex["reaction"] == "no_change" else bool(applied[t] and applied[t][1] == t)
+        recomputed = None
+        if ex["metric_changed"]:
+            rc, w = turn.get("record_change"), applied.get(t)
+            recomputed = bool(rc and w and w[1] == t and _calc_on_new_figure(ctx, rc, t) is not None)
+        states.append({"turn": t, "kind": turn["kind"], "expected_lean": ex["lean"], "pin_moved": ex["pin_moved"],
+                       "observed_lean": lean, "lean_ok": lean_ok, "reaction": ex["reaction"],
+                       "reaction_ok": reaction_ok, "recomputed": recomputed})
+        classes = (turn.get("checkpoint") or {}).get("action_classes") or {}
+        if lean_ok:
+            labels.append(_label("lean_correct", "state", t, 0, ev, f"{lean}; expected {ex['lean']}"))
+        elif lean_ok is False and source != "final" and not (source == "ask" and turn["kind"] == "final_decision_request"):
+            moved = [p for p in range(n + 1) if exp[played[p]]["pin_moved"]]
+            old = exp[played[moved[-1] - 1]]["lean"] if moved else None
+            cls = classes.get("request_evidence" if lean == "waiting_for_evidence" else lean)
+            labels.append(_label("lean_wrong", "state", t, 2, ev,
+                                 f"{lean}; expected {ex['lean']}" + (f"; class {cls}" if cls else ""),
+                                 detail="stale_lean" if lean == old else "wrong_lean"))
+        if lean is None and turn["kind"] == "tentative_decision_request":
+            after = any(exp[played[p]]["pin_moved"] for p in range(n + 1) if played[p] > last_stated)
+            labels.append(_label("lean_not_stated", "state", t, 0, [],
+                                 "no recommend or request_evidence call (the answer may be in text, which code does not read)",
+                                 detail="after_pin_moved" if after else "at_tentative_request"))
+        if lean is not None:
+            last_stated = t
+    for t, hit in applied.items():
+        if hit is None or hit[1] == t:
+            continue
+        e, at = hit
+        name = "late_update" if exp[t]["reaction"] == "update_record" else "late_event_log"
+        what = (f"{e['fact']} -> {e['value']} citing {e['evidence_doc']}" if name == "late_update"
+                else f"event citing {e['evidence_doc']}")
+        labels.append(_label(name, "state", t, 1, [e["i"]], f"due on turn {t}, applied on turn {at}: {what}",
+                             accepted=True, recovered=True))
+    labels += _not_recomputed(ctx, played, exp, applied, math_labels)
+    wrong = [s["turn"] for s in states if s["lean_ok"] is False]
+    summary = {"turns": len(states), "lean_stated": sum(s["observed_lean"] is not None for s in states),
+               "lean_correct": sum(s["lean_ok"] is True for s in states), "lean_wrong": len(wrong),
+               "first_wrong_lean_turn": wrong[0] if wrong else None}
+    return states, summary, labels
+
+
+def _not_recomputed(ctx: _Context, played: list[int], exp: dict, applied: dict, math_labels: list[dict]) -> list[dict]:
+    labels = []
+    for t in played:
+        rc = ctx.by_turn[t].get("record_change")
+        if not (exp[t]["metric_changed"] and rc and applied.get(t)):
+            continue
+        write = applied[t][0]
+        nxt = next((e for e in ctx.events if e["i"] > write["i"] and e.get("accepted") is True
+                    and e["type"] in ("recommendation", "final_action")), None)
+        if nxt is None or _calc_on_new_figure(ctx, rc, t, before=nxt["i"]):
+            continue
+        covered = False
+        for l in math_labels:
+            if l["label"] not in STATE_OVERLAP:
+                continue
+            if nxt["i"] in l["evidence"]:
+                covered = True      # the math label already names this recommendation or final action
+            elif l["label"] in ("used_stale_figure", "used_claimed_figure") and any(write["i"] < i < nxt["i"] for i in l["evidence"]):
+                covered = True      # a calculation was made in between, but on a stale or claimed figure
+        if not covered:
+            kind = "recommendation" if nxt["type"] == "recommendation" else "final action"
+            labels.append(_label("not_recomputed", "state", t, 1, [nxt["i"]],
+                                 f"{rc['fact']} changed to {rc['new_value']} (applied on turn {write['turn']}); the next "
+                                 f"{kind} ({nxt.get('action')}, turn {nxt['turn']}) came with no calculation on the updated figures"))
+    return labels
+
 
 def grade(trace: dict, family: dict, family_changed: bool = False) -> dict:
     """All labels for one run, plus the separate counts and the overall pass.
@@ -485,7 +670,9 @@ def grade(trace: dict, family: dict, family_changed: bool = False) -> dict:
     ctx = _Context(trace, family)
     decision = _decision(ctx, trace)
     record, attempted, accepted_invalid = _record(ctx)
-    labels = decision + record + _math(ctx) + _evidence(ctx) + _process(ctx, trace)
+    math = _math(ctx)
+    turn_states, state_summary, state = _state(ctx, math)
+    labels = decision + record + math + _evidence(ctx) + _process(ctx, trace) + state
     final_failures = sorted({l["label"] for l in labels if l["label"] in FINAL_FAILURES})
     uid = run_uid(trace)
     primary = assign_ids_and_roles(uid, labels)
@@ -498,6 +685,7 @@ def grade(trace: dict, family: dict, family_changed: bool = False) -> dict:
         "primary_label": primary["label"] if primary else None,
         "primary_label_id": primary["label_id"] if primary else None,
         "first_problem_turn": primary["turn"] if primary else None,
+        "turn_states": turn_states, "state_summary": state_summary,
         "labels": labels, "needs_human_review": list(HUMAN_REVIEW), "family_changed": family_changed,
         "note": "; ".join(n for n in (
             "run stopped early; the final record is not graded" if ctx.truncated else "",
@@ -538,6 +726,7 @@ def _check(trace: dict, allow_change: bool) -> dict:
             "labels": ";".join(sorted({l["label"] for l in g["labels"] if l["severity"] > 0})),
             "primary_label": g["primary_label"], "primary_label_id": g["primary_label_id"],
             "first_problem_turn": g["first_problem_turn"],
+            "first_wrong_lean_turn": (g["state_summary"] or {}).get("first_wrong_lean_turn"),
             "family_changed": changed}
 
 
