@@ -56,11 +56,36 @@ Status Nov 12: Sophia drafted RNW-1-v2 (branch `policy/rnw-1-v2`, 58 rules from 
 4. Grader: use the event log to check intermediate states as well as the final state. Report attempted invalid
    changes, accepted invalid changes and final consequences separately.
 
+## Mentor code-review feedback, acted on Nov 24 2026 (the review took place shortly before)
+Their focus was mostly on observability and tracing the labels we track. Because a case can end up with
+multiple labels, organize them so we do not conflate errors (e.g. an event wrongly logged in an earlier turn
+leads to no decision later but should be measured as the former).
+Priorities: 1. Give Dhruvi and Victor access to the telemetry. 2. A unique ID per run and per error.
+3. More explainability (e.g. why the agent chose a tool). 4. Run on updated policies, generalizable and not
+conflicting. 5. Narrow the labels, perhaps break them into smaller ones. 6. Show why and where a run fails,
+especially for no decision, with less overlap with other labels such as event wrongly logged.
+Dhruvi's advice: agents should pause when a correction is made instead of immediately logging an event. For a
+ground truth, give initial info that leads to an expected result on the pin, then add a change the agent should
+pause on and check against the policy, which moves the pin (the expected answer). Track whether the agent is in
+the right decision state at each turn.
+
+| Point | Status |
+|---|---|
+| 1 Access to telemetry | Open: Dhruvi and Victor still need an invite to the Langfuse project (a team action, not code) |
+| 2 Unique IDs | Done: `run_uid` per run, `label_id` per label, in the grader and in Langfuse (trace tag and metadata; each `problem` score keyed by its `label_id`) |
+| 3 Explainability | Decision: use the model's saved thinking (in every trace since #10, shown on each model call in Langfuse); no new field on the agent's tools, because that would change the agent's behaviour. Langfuse also shows it beside each tool call. To check in the first Claude run: Claude may return its thinking empty |
+| 4 Updated policies | Done: RNW-4 (#10) |
+| 5 Narrower labels | Done: a `detail` on four labels; further splits proposed, not built |
+| 6 Why and where it fails, no overlap | Done: one primary problem per run (earliest problem), every label dated by turn, report tables that count each run once |
+| Dhruvi: decision state at each turn | Done: `expected_state` on every turn of every family (schema 5) and per-turn grading (group `state`) |
+
+Open items from this round are in docs/architecture_plan.md "Open questions".
+
 ## Stage 6: architecture (in progress) — read docs/architecture_plan.md first
 Plan agreed Nov 12 (Ishaan): 7 PRs. Now: 1 harness core (Ivan's harness + optional Langfuse copy), 2 credit
 environment + agent view + versioned record + family player, 3 grader v0 (labels from the whole trace, test
-agents), 4 first real run (S01 + F001, 36 runs, needs an API key). Later: 5 gates, 6 review + multi-agent,
-7 policy swap to RNW-1-v2. Rules: the harness never knows the policy (it reads family.json); the trace file is
+agents), 4 first real run (merged #9, Nov 19; the Claude run needs an API key). Later: 5 gates, 6 review +
+multi-agent. PR 7 (policy swap) was replaced by Sophia's RNW-4 (#10, Nov 24). Rules: the harness never knows the policy (it reads family.json); the trace file is
 the official record and Langfuse only a copy; calculations and recommendations are versioned objects; every
 attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
 - [x] PR 1 harness core — merged as #5 (Nov 15): Ivan's `setup/script-player-agent-loop`
@@ -78,12 +103,25 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
   (`case_hash`, override `--allow-family-change`); `wrong_change_type_at_end` final failure;
   `stale_calculation_cited` by figures, not versions; schema-checked tool calls, tool bugs are ungraded
   errors. Oracle test over all 72 conversations. Details: docs/architecture_plan.md "Fixed before PR 4".
-- [ ] PR 4 first real run — `stage6/first-run`, stacked on PR 3 (Nov 13): claude = claude-opus-5-5 (effort high,
-  no fallbacks), `make poc-estimate` (36 runs, ~$12-$77), `make poc` (run + `docs/results/poc_run_1.md` via
-  `cli report`), grader labels model_refusal / output_truncated. Nov 19: main (#8) merged in; set-up proven with a
-  local model (Qwen 3.5 9B via Ollama, 36/36 runs completed, no tool bugs); fixes from that run: empty (not null)
-  assistant content for OpenAI-compatible servers, progress lines with time left, `--seconds-per-turn`; 567 tests.
-  Claude run not done yet: no ANTHROPIC_API_KEY.
+- [x] PR 4 first real run set-up — merged as #9 (Nov 19): claude = claude-opus-5-5 (effort high, no fallbacks),
+  `make poc-estimate`, `make poc`, grader labels model_refusal / output_truncated. Proven with a local model
+  (Qwen 3.5 9B via Ollama): 36/36 runs completed, no harness errors, 24 of 36 passed under RNW-1. That is a
+  harness check, not a finding. The Claude run is not done: no ANTHROPIC_API_KEY yet.
+- [x] RNW-4 policy swap — Sophia's PR #10, merged Nov 24 (replaces the old PR 7). All families on RNW-4
+  (see the Nov 23 log entries). Langfuse scores: #11 was merged into the `policy/rnw-4` branch by mistake, not
+  `main`; #12 put the same commit on `main` (merged Nov 24).
+- [ ] Mentor code-review round (Nov 24) — five changes plus docs, each on its own branch, reviewed, open as
+  PRs #13-#18 (all based on `main`, any merge order is safe), NOT merged yet. All together: 1032 tests pass,
+  `make family-check` clean.
+  Details and rules: docs/architecture_plan.md "Mentor code-review round".
+  - [x] `stage6/mechanics-wording`: system prompt says a final action is taken only by calling its tool; the
+    `log_event` description says it never changes a figure (use `update_record`). Wording only.
+  - [x] `stage6/expected-state`: schema 5, grader-only `expected_state` on every turn of every family.
+  - [x] `stage6/grader-labels`: `run_uid`, `label_id`, one primary problem per run, `detail` on four labels.
+  - [x] `stage6/turn-state`: per-turn decision state (`turn_states`, `state_summary`, group `state`).
+  - [x] `observe/langfuse-ids`: Langfuse carries `run_uid`, `label_id`, the primary problem, the per-turn
+    counts, and the model's saved thinking beside each tool call. Not yet tried against the real project.
+  - [ ] Merge #13-#18 (team); then the runs in "Next runs" of the plan.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -185,8 +223,9 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
 - [ ] 4 build families: 4 of 12 built (Nov 3, `data/stage-4-format`): pilot F001 (drawn) and F002 (Ivan's,
   hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
   352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
-- [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-3 of 7 merged; next PR 4 first real
-  run), see the Stage 6 section and docs/architecture_plan.md
+- [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-4 merged, RNW-4 in; mentor-round PRs #13-#18
+  open; next the Qwen and Claude runs and PR 5), see the Stage 6 section and
+  docs/architecture_plan.md
 
 ## Stage 4 notes (from Stage 3)
 - Pilot mix target: growth_rate 5, ratio 5 (10 families; several may share a company, never a table, since
@@ -247,8 +286,9 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   (Ivan's credit_renewal_v0); confirm. Turn on Ivan's stricter checks (commented out in family.py)? Sums up to
   5 terms (Jiya) or the Nov 1 a ± b = c rule (frees about 2 more pilot tables and 3 held-out)?
 - Harness (Stage 6): limits (15 tool calls/turn, 60/run, 120 s/turn, 3 rejected calls in a row: proposed); which
-  model and keys for PR 4;
-  Langfuse (chosen) vs LangSmith; multi-agent single writer vs proposals. Each run starts fresh (decided).
+  model and keys for the Claude run; multi-agent single writer vs proposals. Each run starts fresh (decided).
+  Langfuse vs LangSmith is closed (Nov 24, see the log). Other open items from the Nov 24 round:
+  docs/architecture_plan.md "Open questions" (RNW-4 rule G2 vs the tools, public Langfuse sessions, stale scores).
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -377,4 +417,17 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   Results and report.md are in `results/2026-11-23_1811_rnw4-smoke_S01-S02_qwen3.5-9b/`; traces are in
   Langfuse, tagged with the real company and filing. Results folders are named `<date>_<HHMM>_<description>`.
   The OpenAI adapter now raises on an empty stream, and tests can no longer reach Langfuse.
-
+- 2026-11-24 RNW-4 merged (Sophia, #10): every family is on RNW-4, which replaces the plan's PR 7. #11 (Langfuse
+  scores) went into `policy/rnw-4` by mistake; #12 put the same commit on `main` (merged).
+- 2026-11-24 Mentor code-review feedback acted on (see "Mentor code-review feedback"). Five changes, each built
+  by its own agent on its own branch and reviewed, open as PRs #13-#17 (docs: #18): mechanics wording; schema 5
+  `expected_state` on every turn; grader `run_uid` / `label_id` / one primary problem / `detail`; grader per-turn
+  decision state; Langfuse IDs, scores and thinking beside each tool call. Motive for the wording: in the Nov 19 Qwen run, 6 of 36 runs stated a decision in text without
+  calling the tool and 9 logged a correction through `log_event`. Runs made before the wording used the old text.
+  1032 tests pass with all of them together; `make family-check` clean. Rules: docs/architecture_plan.md
+  "Mentor code-review round".
+- 2026-11-24 Decisions (Ishaan): (1) Stay on Langfuse. LangSmith was considered (one dev project plus dataset and
+  experiments); not adopted because the team has free Langfuse credits. Closes the open question. (2) Explainability
+  comes from the model's saved thinking, not from a new field on the tools. (3) Per-turn expected state was built
+  directly from the mentor feedback, without a separate design proposal. (4) Version 1 (upfront) stays decline
+  (F-1, Nov 23); nothing in this round changes it.

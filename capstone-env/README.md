@@ -122,7 +122,18 @@ grades a run only against the `family.json` it was played with (checked by `case
 `make family` rebuild, old runs are skipped unless you pass `--allow-family-change` (results are then
 marked `family_changed`).
 
+Each run has a `run_uid` (unique across experiments) and each label a `label_id`. `labels.csv` has one
+row per label (columns: run_id, run_uid, model, family, version, version_type, mode, family_changed,
+label_id, label, group, detail, role, turn, severity, accepted, recovered, evidence, note). A run's
+earliest problem is its primary problem (`role` primary; the other problems are secondary). `runs.csv`
+gains `run_uid`, `check_primary_label`, `check_primary_label_id`, `check_first_problem_turn` and
+`check_first_wrong_lean_turn`. A sixth group, `state`, grades the agent's decision state turn by turn
+against the family file's `expected_state`; it never changes pass or fail. `report` makes a results page
+with, besides the older tables, "Primary problem per run", "Problems that occur together" and "Decision
+state by turn". The rules are in the docstring of `grader.py` and in `docs/architecture_plan.md`.
+
 ```bash
+python -m capstone.cli report results/fam1 --out results/fam1/report.md   # results page from a graded folder
 make demo                                                     # 4 scripted mock agents, table + traces
 python -m capstone.cli grade results/fam1                     # relabel saved runs
 make poc-estimate                                             # first real run: rough cost (36 runs)
@@ -168,6 +179,9 @@ per run; `<out>/summary.csv` has pass^1…pass^k per model × mode × case type 
 Put `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env` (see `.env.example`), then add
 `--langfuse` to `run`, or send saved runs with `python -m capstone.cli langfuse results/<exp>`.
 Each run becomes one Langfuse trace: messages as events, model calls as generations (tokens, cost),
-tool calls as tool steps. The trace files stay the official record; Langfuse is a copy for
-browsing, and a run without keys still completes and saves its traces.
+tool calls as tool steps (each one notes the model call that asked for it and that call's saved
+thinking). A graded run also gets the grader's result as scores: `passed`, `decision`, the primary
+problem, one `problem` score per label (keyed by its `label_id`) and the per-turn decision-state counts;
+the trace is tagged with its `run_uid`. The trace files stay the official record; Langfuse is a copy
+for browsing, and a run without keys still completes and saves its traces.
 
