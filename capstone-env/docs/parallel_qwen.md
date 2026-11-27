@@ -1,6 +1,6 @@
 # Running local Qwen 3.5 9B in parallel (Nov 26 2026)
 
-Branch `exp/parallel-qwen`. Question: can the 216-run Qwen job (about 15-20 h one run at a time on Ollama)
+Question (first on branch `exp/parallel-qwen`): can the 216-run Qwen job (about 15-20 h one run at a time on Ollama)
 run faster on this machine (Apple M4 Max, 64 GB)?
 
 ## Result
@@ -52,38 +52,47 @@ comparable; four runs are too few to say whether that is the backend or chance.
 - Either way, runs on a new backend are not comparable with the Nov 23 Ollama runs (they were not anyway:
   the policy text and prompts changed since).
 
-## Set-up
+## Set-up (llama.cpp or Ollama)
+
+Both backends are in `configs/local_qwen.yaml` (`llama-qwen9b`, `ollama-qwen9b`); `configs/models.yaml`
+stays without open-weight ids until the team picks one. `.env` needs `OLLAMA_API_KEY=<any value>` (neither
+server checks it). Start one server in its own terminal and leave it running, then run from `capstone-env/`:
+
+```bash
+scripts/serve_local_qwen.sh llama        # or: ollama
+scripts/run_local_qwen.sh llama          # all four families, k = 3; or: ollama
+scripts/run_local_qwen.sh llama 1 data/families/smoke   # smoke families only, k = 1
+```
+
+`run_local_qwen.sh` stops at once if the server is not up, names the results folder
+`results/<date>_<HHMM>_<families>_k<K>_qwen3.5-9b_<backend>`, copies the models file into it, uses 4 workers
+on llama.cpp and 1 on Ollama, and sends the runs to Langfuse (`NO_LANGFUSE=1` skips that). Run one backend at
+a time: they share the GPU. The servers it starts:
 
 ```bash
 # llama.cpp: 4 slots, 32k context each
 llama-server -m ~/models/Qwen3.5-9B-Q4_K_M.gguf --jinja -np 4 -c 131072 -fa on \
   --host 127.0.0.1 --port 11437 --alias qwen3.5:9b
-
-# MLX: 4 requests at once
+# Ollama: one slot; 32k context, since the default can be shorter than a conversation and cuts it silently
+OLLAMA_CONTEXT_LENGTH=32768 OLLAMA_HOST=127.0.0.1:11435 ollama serve
+# MLX (not in the scripts): 4 requests at once; model: the path the server was started with
 mlx_lm.server --model ~/models/qwen3.5-9b-mlx-4bit --host 127.0.0.1 --port 11437 \
   --decode-concurrency 4 --prompt-concurrency 4 --prompt-cache-size 16
 ```
 
-Models file (in the results folder, like the Nov 23 one; any value for `LOCAL_API_KEY` in `.env`):
+## Full run on llama.cpp (Nov 26)
 
-```yaml
-llama-qwen9b:
-  provider: openai
-  model: qwen3.5:9b
-  base_url: http://host.docker.internal:11437/v1
-  api_key_env: LOCAL_API_KEY
-  params: {max_tokens: 16384, temperature: 1, top_p: 0.95, presence_penalty: 1.5, extra_body: {top_k: 20}}
-  price: {input: 0, output: 0}
-mlx-qwen9b:              # model: the path the server was started with
-  provider: openai
-  model: /Users/<you>/models/qwen3.5-9b-mlx-4bit
-  base_url: http://host.docker.internal:11437/v1
-  api_key_env: LOCAL_API_KEY
-  params: {max_tokens: 16384, temperature: 1, top_p: 0.95, presence_penalty: 1.5, extra_body: {top_k: 20}}
-  price: {input: 0, output: 0}
-```
+All four families x 9 versions x 2 modes x k = 3 on `llama-server -np 4`, PR #19 policy text:
+216 / 216 completed in 6 h 48 min (about 15-20 h on Ollama one at a time), no harness errors, no step-cap
+hits, no prompt cut to fit, 176 passed. Results folder
+`results/2026-11-26_1055_rnw4_all-families_k3_qwen3.5-9b_llama-np4`; time breakdown in
+`docs/run_time_breakdown.html` (token generation is 94% of the time; about two thirds of it is thinking).
 
-Sampling matches Ollama's `qwen3.5:9b` defaults. Run with `--workers 4` (more workers than slots only queues).
+- 43 of 2,722 model replies (1.6%) have no text and no tool call: the model wrote its answer inside its
+  thinking. The Nov 23 Ollama run has the same rate (7 of 392, 1.8%), so it is the model, not the server.
+  The analyst sees an empty reply; when it falls on the final decision the run ends as `no_decision`.
+- The Langfuse copy lost steps for 69 runs because the export flushed only at the end; `export_runs` now
+  flushes after each run, and the 69 were re-sent (all 216 checked against their trace files).
 
 ## Not tried
 

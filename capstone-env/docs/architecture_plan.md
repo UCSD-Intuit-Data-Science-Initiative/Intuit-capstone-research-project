@@ -307,10 +307,11 @@ of `observe.py` is the source of truth.
   it wrote anything (the filter's label was `reasoning_extraction`).
 
 **Next runs.** Qwen on RNW-4, all four families, k = 3 (216 runs, free); then one Claude smoke run and the
-36-run Claude run. The Nov 23 Qwen runs took 2.4 and 3.4 hours per 36 runs, so 216 runs take about 15-20
-hours (k = 1 about 5-7). A local Ollama model needs `OLLAMA_API_KEY` (any value) in `.env` and its own
-models file in the results folder (the Nov 23 one: `results/2026-11-23_1811_.../models.yaml`). Runs made
-before the RNW-4 tool fixes (F-15 to F-18, Nov 26) saw the older policy text.
+36-run Claude run. The Qwen run was done on Nov 26 on llama.cpp with 4 slots: 216 / 216 completed in 6 h 48
+min (Ollama, one at a time, takes about 15-20 h), 176 passed (docs/parallel_qwen.md). Local Qwen runs use
+`configs/local_qwen.yaml` through `scripts/serve_local_qwen.sh` and `scripts/run_local_qwen.sh` (llama.cpp or
+Ollama; `.env` needs `OLLAMA_API_KEY`, any value). Runs made before the RNW-4 tool fixes (F-15 to F-18, Nov 26)
+saw the older policy text.
 **Next build rounds.** PR 5 gates; PR 6 review and multiple agents (waits on the team decision on single
 writer vs proposals).
 **Further label splits proposed, not built.** `wrong_change_type` by direction; `tool_misuse` as one label per

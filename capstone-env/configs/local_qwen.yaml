@@ -1,0 +1,23 @@
+# Local Qwen 3.5 9B (4-bit, no cost) through two servers on the host. This is not the team's model choice
+# for PR 4: configs/models.yaml stays without open-weight ids until that is decided.
+# Start a server with scripts/serve_local_qwen.sh, then run with scripts/run_local_qwen.sh, which copies this
+# file into the results folder. Both servers ignore the API key, but the client needs one:
+# OLLAMA_API_KEY=any value in .env. Notes and benchmark: docs/parallel_qwen.md.
+
+ollama-qwen9b:          # Ollama, one request at a time (it ignores OLLAMA_NUM_PARALLEL for this model): --workers 1
+  provider: openai
+  model: qwen3.5:9b
+  base_url: http://host.docker.internal:11435/v1
+  api_key_env: OLLAMA_API_KEY
+  params: {}            # Ollama's own qwen3.5:9b defaults, as in the Nov 23 runs
+  price: {input: 0, output: 0}
+
+llama-qwen9b:           # llama.cpp llama-server, 4 slots: --workers 4 (more workers than slots only queue)
+  provider: openai
+  model: qwen3.5:9b     # the server's --alias
+  base_url: http://host.docker.internal:11437/v1
+  api_key_env: OLLAMA_API_KEY
+  # Ollama's qwen3.5:9b sampling defaults, set here because llama-server has its own. max_tokens keeps long
+  # thinking from being cut (the longest conversation on Nov 26 filled about 17k of a slot's 32k).
+  params: {max_tokens: 16384, temperature: 1, top_p: 0.95, presence_penalty: 1.5, extra_body: {top_k: 20}}
+  price: {input: 0, output: 0}
