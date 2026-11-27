@@ -453,3 +453,8 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   The Langfuse export dropped steps of 69 runs (one flush at the end, a bounded queue): `export_runs` now
   flushes after each run; the 69 were re-sent and all 216 match their trace files. 1.6% of Qwen replies are
   empty (answer written inside its thinking), the same on Ollama: a model trait, left as it is.
+- 2026-11-26 RNW-4 is frozen for Q1 (Sophia), with F-15 to F-18: no change to the agent-facing policy text
+  until the Q1 report, so all Q1 runs share one text and can be pooled. Open items are provisional decisions
+  awaiting Dhruvi (version 3 escalate only, new-event rule, evidence for a correction) and the unused
+  withdrawal path (F-16), not logic errors. Candidate for Q2: clearer F1(a) wording; all 17 failed version 1
+  runs on Nov 26 escalated under F1(a) without noting that opening-message corrections set the baseline.
