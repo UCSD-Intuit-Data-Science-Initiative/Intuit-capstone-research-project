@@ -165,6 +165,14 @@ model ids are deliberately blank; fill in `model:` for the entries you use (keys
 run refuses to start while the id is blank. Cost comes from `price` (USD per 1M tokens), or from
 OpenRouter's own usage report.
 
+Local Qwen 3.5 9B (no cost) runs from `configs/local_qwen.yaml` on llama.cpp (4 at once) or Ollama (one at
+a time); set `OLLAMA_API_KEY` to any value in `.env`. Start a server, then run (see docs/parallel_qwen.md):
+
+```bash
+scripts/serve_local_qwen.sh llama              # or ollama; leave it running in its own terminal
+scripts/run_local_qwen.sh llama 3 data/families/smoke   # backend, repeats, families (default: all four)
+```
+
 ### Outputs
 
 `<out>/traces/<case>__<version>__<mode>__<model>__r<repeat>.json` holds the run metadata and
@@ -183,5 +191,7 @@ tool calls as tool steps (each one notes the model call that asked for it and th
 thinking). A graded run also gets the grader's result as scores: `passed`, `decision`, the primary
 problem, one `problem` score per label (keyed by its `label_id`) and the per-turn decision-state counts;
 the trace is tagged with its `run_uid`. The trace files stay the official record; Langfuse is a copy
-for browsing, and a run without keys still completes and saves its traces.
+for browsing, and a run without keys still completes and saves its traces. Scores can be re-sent safely
+(`--scores-only`), but sending a run that is already in Langfuse again adds a second copy of its steps:
+delete that trace in Langfuse first.
 

@@ -267,11 +267,20 @@ def write_experiment(tmp_path: Path) -> Path:
     return tmp_path / "exp1"
 
 
-def test_export_runs_finds_traces_and_flushes_once(tmp_path):
+class FlushLogClient(FakeClient):
+    def flush(self):
+        super().flush()
+        self.calls.append(("flush", {}))
+
+
+def test_export_runs_finds_traces_and_flushes_after_each(tmp_path):
     out = write_experiment(tmp_path)
-    client, lines = FakeClient(), []
+    client, lines = FlushLogClient(), []
     assert observe.export_runs([out], client, lines.append, fake_propagate([])) == 2
-    assert client.flushed == 1 and lines[-1] == "langfuse: 2 runs sent"
+    assert client.flushed == 2 and lines[-1] == "langfuse: 2 runs sent"
+    # Each run is flushed before the next one starts, so a long export cannot fill the client's queue.
+    order = [kind for kind, _ in client.calls if kind in ("create_trace_id", "flush")]
+    assert order == ["create_trace_id", "flush", "create_trace_id", "flush"]
     seeds = [kw["seed"] for kind, kw in client.calls if kind == "create_trace_id"]
     assert seeds == ["exp1/run0", "exp1/run1"]
     assert observe.trace_files([out / "traces" / "run0.json"]) == [out / "traces" / "run0.json"]

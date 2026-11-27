@@ -121,6 +121,9 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
   - [x] `observe/langfuse-ids`: Langfuse carries `run_uid`, `label_id`, the primary problem, the per-turn
     counts, and the model's saved thinking beside each tool call. Tried against the real project Nov 24.
   - [x] Merged #13-#18 (Nov 24-25). Next: the runs in "Next runs" of the plan.
+- [x] Qwen RNW-4 run (Nov 26): 216 / 216 on llama.cpp with 4 slots in 6 h 48 min, 176 passed; branch
+  `stage6/local-qwen-runs` (local Qwen set-up + Langfuse flush fix, on top of PR #19; its PR merges after #19).
+  Next: the Claude runs.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -187,7 +190,8 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   `trace.py` (trace format), `runner.py` (repeats, pass^k, tables), `cli.py`
   (run/run-families/score/grade/show/chat/langfuse), `checker.py` (stub for the toy_invoice case only; credit
   runs are graded by `credit/grader.py`), `observe.py` (optional Langfuse copy). `configs/models.yaml` (model
-  names → provider/id/params/price; ids blank until chosen). `cases/` holds the harness's example case only.
+  names → provider/id/params/price; ids blank until chosen); `configs/local_qwen.yaml` (local Qwen 3.5 9B on
+  llama.cpp or Ollama; `scripts/serve_local_qwen.sh`, `scripts/run_local_qwen.sh`). `cases/` holds the harness's example case only.
   `results/` run outputs (git-ignored). Plan: `docs/architecture_plan.md`.
 - Data: `data/raw/` (fetched, read-only, git-ignored), `data/interim/` (git-ignored, regenerable), `data/families/`
   (`specs/<id>.yaml` short authored spec with no gold; `templates/<id>.yaml` shared 9-version script;
@@ -223,7 +227,7 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
   352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
 - [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-4 merged, RNW-4 in; mentor-round PRs #13-#18
-  merged; next the Qwen and Claude runs and PR 5), see the Stage 6 section and
+  merged; Qwen RNW-4 run done Nov 26; next the Claude runs and PR 5), see the Stage 6 section and
   docs/architecture_plan.md
 
 ## Stage 4 notes (from Stage 3)
@@ -441,3 +445,16 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   has one). (F-17) E7: a document received after the final action is not logged. (F-18) Outcome 1 and G1
   match what the calculator and `read_record` do. Families rebuilt (policy text and hash only; gold
   unchanged). Runs made before this saw the older policy text.
+- 2026-11-26 Local Qwen on llama.cpp (Sophia; docs/parallel_qwen.md). Ollama runs qwen3.5:9b one request at a
+  time whatever OLLAMA_NUM_PARALLEL says, so the 216-run Qwen job ran on llama.cpp `llama-server -np 4` (same
+  Q4_K_M weights, Ollama's sampling defaults): 6 h 48 min instead of about 15-20 h, 216 / 216 completed, no
+  harness errors, 176 passed. Both backends live in `configs/local_qwen.yaml`, not `configs/models.yaml`
+  (still no open-weight id chosen). Runs on a new backend are not comparable with the Nov 23 Ollama runs.
+  The Langfuse export dropped steps of 69 runs (one flush at the end, a bounded queue): `export_runs` now
+  flushes after each run; the 69 were re-sent and all 216 match their trace files. 1.6% of Qwen replies are
+  empty (answer written inside its thinking), the same on Ollama: a model trait, left as it is.
+- 2026-11-26 RNW-4 is frozen for Q1 (Sophia), with F-15 to F-18: no change to the agent-facing policy text
+  until the Q1 report, so all Q1 runs share one text and can be pooled. Open items are provisional decisions
+  awaiting Dhruvi (version 3 escalate only, new-event rule, evidence for a correction) and the unused
+  withdrawal path (F-16), not logic errors. Candidate for Q2: clearer F1(a) wording; all 17 failed version 1
+  runs on Nov 26 escalated under F1(a) without noting that opening-message corrections set the baseline.

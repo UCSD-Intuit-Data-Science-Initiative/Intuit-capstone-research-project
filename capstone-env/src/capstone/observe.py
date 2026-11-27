@@ -367,6 +367,8 @@ def export_runs(paths: Iterable[str | Path], client: Any | None = None,
     """Send every trace found under ``paths``, with its grade as scores; return how many were sent.
 
     ``scores_only`` sends just the scores, for runs whose traces are already in Langfuse.
+    Each run is flushed before the next is sent: the client's queue is bounded and drops spans when a
+    long export fills it (on Nov 26, 69 of 216 runs reached Langfuse incomplete with one flush at the end).
     """
     files = trace_files(paths)
     if not files:
@@ -389,7 +391,7 @@ def export_runs(paths: Iterable[str | Path], client: Any | None = None,
         else:
             export_trace(trace, client, experiment, propagate, grade)
             log(f"langfuse: sent {trace['run_id']}{scored}")
+        client.flush()
         sent += 1
-    client.flush()
     log(f"langfuse: {sent} runs {'scored' if scores_only else 'sent'}")
     return sent

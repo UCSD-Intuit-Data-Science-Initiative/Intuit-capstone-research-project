@@ -232,6 +232,23 @@ def test_models_config_has_no_model_ids_filled_in():
     assert all(not c.get("model") for name, c in configs.items() if name != "claude")
 
 
+
+def test_local_qwen_config_matches_the_serve_and_run_scripts(monkeypatch):
+    """configs/local_qwen.yaml: both backends build, on the ports and server alias the scripts use."""
+    from capstone.models import load_model_configs
+    monkeypatch.setenv("OLLAMA_API_KEY", "any")
+    configs = load_model_configs(ROOT / "configs" / "local_qwen.yaml")
+    assert set(configs) == {"ollama-qwen9b", "llama-qwen9b"}
+    serve = (ROOT / "scripts" / "serve_local_qwen.sh").read_text()
+    run = (ROOT / "scripts" / "run_local_qwen.sh").read_text()
+    for name, port in (("ollama-qwen9b", 11435), ("llama-qwen9b", 11437)):
+        cfg = configs[name]
+        assert cfg["model"] == "qwen3.5:9b" and cfg["base_url"] == f"http://host.docker.internal:{port}/v1"
+        assert f"MODEL={name} PORT={port}" in run and str(port) in serve
+        make_model(name, configs)
+    assert "--alias qwen3.5:9b" in serve
+
+
 # ---- Provider adapters --------------------------------------------------------------
 
 NEUTRAL = [

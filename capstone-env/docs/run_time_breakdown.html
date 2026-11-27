@@ -1,0 +1,316 @@
+<title>Qwen Run Time Breakdown</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column; the systems diagram breaks out wider and scrolls sideways on phones. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --fg: #18202b; --muted: #5a6575; --line: #d5dae2;
+  --box: #eef1f5; --heat: #d9480f; --heat-soft: #fde3d4; --think: #b8360a; --text: #e8773f; --args: #f4b183;
+  --cool: #3b6ea8; --cool-soft: #dde8f5; --ok: #2f7d4f;
+  --f-display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11151b; --surface: #181d25; --fg: #e6eaf0; --muted: #9aa5b5; --line: #2d3541;
+  --box: #1f2630; --heat: #ff7a3d; --heat-soft: #3a2318; --think: #ff7a3d; --text: #f0a070; --args: #f6c9a6;
+  --cool: #7fa8db; --cool-soft: #1c2a3b; --ok: #5fbf85; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11151b; --surface: #181d25; --fg: #e6eaf0; --muted: #9aa5b5; --line: #2d3541;
+  --box: #1f2630; --heat: #ff7a3d; --heat-soft: #3a2318; --think: #ff7a3d; --text: #f0a070; --args: #f6c9a6;
+  --cool: #7fa8db; --cool-soft: #1c2a3b; --ok: #5fbf85; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 64px; display: grid; gap: 40px; }
+.col { max-width: 720px; }
+h1, h2 { font-family: var(--f-display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); line-height: 1.1; }
+h2 { font-size: 1.3rem; margin-bottom: 12px; }
+p { margin: 0 0 10px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.lead { font-size: 1.1rem; color: var(--fg); margin-top: 14px; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--f-mono); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+.kpi b { display: block; font-family: var(--f-display); font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 13px; color: var(--muted); }
+.kpi.hot b { color: var(--heat); }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; }
+.diagram svg { display: block; min-width: 900px; width: 100%; height: auto; }
+svg text { font-family: var(--f-body); fill: var(--fg); }
+svg .t-title { font-weight: 600; font-size: 14px; }
+svg .t-sub { font-size: 12px; fill: var(--muted); }
+svg .t-mono { font-family: var(--f-mono); font-size: 11.5px; fill: var(--muted); }
+svg .t-share { font-family: var(--f-mono); font-size: 13px; font-weight: 500; }
+svg .lane { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 5 4; }
+svg .lane-label { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: 0.05em; fill: var(--muted); }
+svg .bx { fill: var(--box); stroke: var(--line); }
+svg .bx-hot { fill: var(--heat-soft); stroke: var(--heat); stroke-width: 1.5; }
+svg .bx-cool { fill: var(--cool-soft); stroke: var(--cool); }
+svg .ar { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+svg .ar-hot { fill: none; stroke: var(--heat); stroke-width: 2; }
+svg .head { fill: var(--muted); }
+svg .head-hot { fill: var(--heat); }
+svg .s-think { fill: var(--think); } svg .s-text { fill: var(--text); } svg .s-args { fill: var(--args); }
+svg .s-zero { fill: var(--ok); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.stack { display: flex; height: 44px; border-radius: 5px; overflow: hidden; border: 1px solid var(--line); }
+.stack div { display: flex; align-items: center; padding: 0 8px; font-family: var(--f-mono); font-size: 12px; color: #fff; white-space: nowrap; overflow: hidden; min-width: 0; }
+.stack .k-think { background: var(--think); } .stack .k-text { background: var(--text); } .stack .k-args { background: var(--args); color: #3a1a08; }
+.stack .k-pre { background: var(--cool); }
+.stack-key { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 20px; margin-top: 12px; font-size: 14px; }
+.stack-key div { display: flex; gap: 8px; align-items: baseline; }
+.stack-key b { font-family: var(--f-mono); font-weight: 500; font-variant-numeric: tabular-nums; min-width: 4.5em; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; }
+.two > section { min-width: 0; }
+.bars { display: grid; gap: 7px; }
+.bar { display: grid; grid-template-columns: 11.5em 1fr 3.6em; gap: 10px; align-items: center; font-size: 13.5px; }
+.bar .lbl { overflow-wrap: anywhere; }
+.bar .trk { height: 12px; background: var(--box); border-radius: 3px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--heat); border-radius: 3px; }
+.bar .fill.cool { background: var(--cool); }
+.bar .v { font-family: var(--f-mono); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.note { font-size: 13px; color: var(--muted); margin-top: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill { display: inline-block; font-family: var(--f-mono); font-size: 11px; padding: 2px 7px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.big { color: var(--heat); } .pill.mid { color: var(--cool); } .pill.none { color: var(--muted); }
+.sharing { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.sharing .kpi b { font-size: 1.25rem; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+
+<div class="wrap">
+  <header class="col">
+    <div class="eyebrow">RNW-4 · Qwen 3.5 9B on llama.cpp, 4 slots · run of Nov 26</div>
+    <h1>Where a run's time goes</h1>
+    <p class="lead">94% of every run is the model generating tokens, and about two thirds of those tokens are thinking. The harness, the tools, Docker, the network and reading the prompt together take about 6%.</p>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><b>8.4 min</b><span>mean run, with 4 running at once (median 7.3, max 16.5)</span></div>
+    <div class="kpi hot"><b>94%</b><span>of run time is token generation (decode)</span></div>
+    <div class="kpi"><b>13.6</b><span>model calls per run, one after another</span></div>
+    <div class="kpi"><b>5,769</b><span>tokens generated per run, 425 per call</span></div>
+    <div class="kpi"><b>~45 tok/s</b><span>total output of the server, shared by 4 slots</span></div>
+  </div>
+
+  <section>
+    <h2>The workflow, with each step's share of run time</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 1040 700" role="img" aria-label="Systems diagram: the harness in Docker sends 13.6 model calls per run to llama-server on the host; decode takes 94% of the time">
+        <defs>
+          <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="head"/></marker>
+          <marker id="mh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="head-hot"/></marker>
+        </defs>
+
+        <!-- lanes -->
+        <rect class="lane" x="16" y="28" width="452" height="548" rx="10"/>
+        <text class="lane-label" x="30" y="50">DOCKER CONTAINER · HARNESS (d23-capstone)</text>
+        <rect class="lane" x="588" y="28" width="436" height="548" rx="10"/>
+        <text class="lane-label" x="602" y="50">MAC HOST · llama-server :11437 · M4 MAX GPU</text>
+
+        <!-- harness boxes -->
+        <rect class="bx" x="36" y="66" width="412" height="64" rx="6"/>
+        <text class="t-title" x="50" y="90">run-families CLI</text>
+        <text class="t-sub" x="50" y="110">216 run specs: 4 families × 9 versions × 2 modes × k=3</text>
+        <text class="t-share" x="434" y="90" text-anchor="end">0%</text>
+
+        <rect class="bx" x="36" y="148" width="412" height="64" rx="6"/>
+        <text class="t-title" x="50" y="172">Runner · thread pool</text>
+        <text class="t-sub" x="50" y="192">4 workers, so 4 runs share the server at once</text>
+        <text class="t-share" x="434" y="172" text-anchor="end">0%</text>
+
+        <rect class="bx" x="36" y="230" width="412" height="64" rx="6"/>
+        <text class="t-title" x="50" y="254">Family player</text>
+        <text class="t-sub" x="50" y="274">sends 4–12 scripted analyst turns per run, in order</text>
+        <text class="t-share" x="434" y="254" text-anchor="end">0%</text>
+
+        <rect class="bx-hot" x="36" y="312" width="412" height="84" rx="6"/>
+        <text class="t-title" x="50" y="336">Agent turn loop</text>
+        <text class="t-sub" x="50" y="356">model call → run its tool → call again, until a text reply</text>
+        <text class="t-sub" x="50" y="376">2.05 model calls per turn · 13.6 per run · max 15 tools/turn</text>
+        <text class="t-share" x="434" y="336" text-anchor="end" style="fill:var(--heat)">waits</text>
+
+        <rect class="bx" x="36" y="414" width="412" height="64" rx="6"/>
+        <text class="t-title" x="50" y="438">Credit tools + versioned record</text>
+        <text class="t-sub" x="50" y="458">read_record, update_record, calculator, recommend, decline…</text>
+        <text class="t-share" x="434" y="438" text-anchor="end">&lt;0.1%</text>
+
+        <rect class="bx" x="36" y="496" width="412" height="64" rx="6"/>
+        <text class="t-title" x="50" y="520">Trace file per run</text>
+        <text class="t-sub" x="50" y="540">every call, tool result and the saved thinking</text>
+        <text class="t-share" x="434" y="520" text-anchor="end">0%</text>
+
+        <!-- harness arrows -->
+        <path class="ar" d="M242 130 V146" marker-end="url(#m)"/>
+        <path class="ar" d="M242 212 V228" marker-end="url(#m)"/>
+        <path class="ar" d="M242 294 V310" marker-end="url(#m)"/>
+        <path class="ar" d="M210 396 V412" marker-end="url(#m)"/>
+        <path class="ar" d="M274 412 V398" marker-end="url(#m)"/>
+        <path class="ar" d="M242 478 V494" marker-end="url(#m)"/>
+
+        <!-- network wire -->
+        <path class="ar-hot" d="M448 340 H520 V96 H604" marker-end="url(#mh)"/>
+        <path class="ar" d="M604 116 H540 V368 H450" marker-end="url(#m)"/>
+        <text class="t-mono" x="528" y="200" text-anchor="middle">×13.6</text>
+        <text class="t-mono" x="528" y="216" text-anchor="middle">per run</text>
+        <text class="t-mono" x="474" y="330">~10k tok</text>
+        <text class="t-mono" x="474" y="388">~425 tok</text>
+
+        <!-- host boxes -->
+        <rect class="bx" x="608" y="66" width="396" height="64" rx="6"/>
+        <text class="t-title" x="622" y="90">OpenAI-compatible API, streamed</text>
+        <text class="t-sub" x="622" y="110">via host.docker.internal; request = history + 10 tools</text>
+        <text class="t-share" x="990" y="90" text-anchor="end">0%</text>
+
+        <rect class="bx" x="608" y="148" width="396" height="64" rx="6"/>
+        <text class="t-title" x="622" y="172">Slot scheduler · 4 slots × 32k</text>
+        <text class="t-sub" x="622" y="192">each slot keeps its run's prompt cached: 96% reused</text>
+        <text class="t-share" x="990" y="172" text-anchor="end">0%</text>
+
+        <rect class="bx-cool" x="608" y="230" width="396" height="64" rx="6"/>
+        <text class="t-title" x="622" y="254">Prefill (read the new part of the prompt)</text>
+        <text class="t-sub" x="622" y="274">~500 new tokens per call; the policy text stays cached</text>
+        <text class="t-share" x="990" y="254" text-anchor="end" style="fill:var(--cool)">5.8%</text>
+
+        <rect class="bx-hot" x="608" y="312" width="396" height="166" rx="6"/>
+        <text class="t-title" x="622" y="336">Decode (generate tokens, one at a time)</text>
+        <text class="t-sub" x="622" y="356">12.4 tok/s per slot · ~45 tok/s for all 4</text>
+        <text class="t-share" x="990" y="336" text-anchor="end" style="fill:var(--heat);font-size:15px">94.2%</text>
+        <!-- decode split: 66.5 / 27.9 / 5.6 of 368 px -->
+        <rect class="s-think" x="622" y="376" width="245" height="26" rx="2"/>
+        <rect class="s-text" x="867" y="376" width="103" height="26"/>
+        <rect class="s-args" x="970" y="376" width="20" height="26"/>
+        <text x="632" y="394" style="fill:#fff;font-family:var(--f-mono);font-size:12px">thinking ≈ 66%</text>
+        <text x="876" y="394" style="fill:#fff;font-family:var(--f-mono);font-size:12px">reply 28%</text>
+        <text class="t-mono" x="622" y="426">thinking is regenerated before every call</text>
+        <text class="t-mono" x="622" y="444">and is not sent back, so each call starts over</text>
+        <text class="t-mono" x="622" y="462">tool-call arguments ≈ 6% (light segment)</text>
+
+        <rect class="bx" x="608" y="496" width="396" height="64" rx="6"/>
+        <text class="t-title" x="622" y="520">Metal GPU, shared by all 4 slots</text>
+        <text class="t-sub" x="622" y="540">alone a slot gets 19.7 tok/s; with 4 busy, 12.4 each</text>
+
+        <path class="ar" d="M806 130 V146" marker-end="url(#m)"/>
+        <path class="ar" d="M806 212 V228" marker-end="url(#m)"/>
+        <path class="ar" d="M806 294 V310" marker-end="url(#m)"/>
+        <path class="ar" d="M806 478 V494" marker-end="url(#m)"/>
+
+        <!-- after the run -->
+        <path class="ar" d="M242 560 V610" marker-end="url(#m)"/>
+        <rect class="bx" x="36" y="612" width="968" height="64" rx="6"/>
+        <text class="t-title" x="50" y="636">After all 216 runs: grader → summary.csv and report → copy to Langfuse</text>
+        <text class="t-sub" x="50" y="656">runs once, at the end; takes minutes, not hours, and is not part of the per-run time</text>
+      </svg>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--heat)"></i>where the time goes</span>
+      <span><i style="background:var(--cool)"></i>small cost</span>
+      <span><i style="background:var(--box);border:1px solid var(--line)"></i>negligible (&lt;0.1%)</span>
+    </div>
+  </section>
+
+  <section class="col" style="max-width:1080px">
+    <h2>A typical run, 8.4 minutes</h2>
+    <div class="stack" role="img" aria-label="Thinking 5.3 min, reply text 2.2 min, tool arguments 0.4 min, prefill 0.5 min">
+      <div class="k-think" style="flex:5.26">thinking 5.3 min</div>
+      <div class="k-text" style="flex:2.21">reply 2.2</div>
+      <div class="k-args" style="flex:0.45"></div>
+      <div class="k-pre" style="flex:0.49"></div>
+    </div>
+    <div class="stack-key">
+      <div><b>5.3 min</b><span>thinking before each call</span></div>
+      <div><b>2.2 min</b><span>visible reply text</span></div>
+      <div><b>0.4 min</b><span>tool-call arguments</span></div>
+      <div><b>0.5 min</b><span>prefill (reading the prompt)</span></div>
+      <div><b>&lt;0.1 s</b><span>tools, record, harness, Docker</span></div>
+    </div>
+    <p class="note">Generation is split by characters of thinking, reply text and tool arguments in the traces (854k / 359k / 72k), so the three decode parts are estimates. The decode and prefill totals are measured.</p>
+  </section>
+
+  <section>
+    <h2>Why one run takes 8.4 minutes and not 5</h2>
+    <div class="sharing">
+      <div class="kpi"><b>~5 min alone</b><span>one run at a time: 19.7 tok/s for the run</span></div>
+      <div class="kpi"><b>8.4 min shared</b><span>4 at a time: 12.4 tok/s for each run</span></div>
+      <div class="kpi hot"><b>2.3× more runs/hour</b><span>the server makes ~45 tok/s instead of 19.7</span></div>
+    </div>
+    <p class="note col">A run is slower on its own because 4 runs share one GPU, but the whole job finishes much sooner. The job's length is total tokens ÷ server speed: 216 runs × 5,769 tokens ÷ 45 tok/s ≈ 7.7 hours.</p>
+  </section>
+
+  <div class="two">
+    <section>
+      <h2>By step of the conversation</h2>
+      <div class="bars">
+        <div class="bar"><span class="lbl">opening</span><span class="trk"><span class="fill" style="width:100%;display:block"></span></span><span class="v">31.1%</span></div>
+        <div class="bar"><span class="lbl">tentative decision</span><span class="trk"><span class="fill" style="width:56.9%;display:block"></span></span><span class="v">17.7%</span></div>
+        <div class="bar"><span class="lbl">final decision</span><span class="trk"><span class="fill" style="width:46.6%;display:block"></span></span><span class="v">14.5%</span></div>
+        <div class="bar"><span class="lbl">disclosure</span><span class="trk"><span class="fill" style="width:37.3%;display:block"></span></span><span class="v">11.6%</span></div>
+        <div class="bar"><span class="lbl">question (scripted)</span><span class="trk"><span class="fill" style="width:33.4%;display:block"></span></span><span class="v">10.4%</span></div>
+        <div class="bar"><span class="lbl">correction</span><span class="trk"><span class="fill" style="width:22.5%;display:block"></span></span><span class="v">7.0%</span></div>
+        <div class="bar"><span class="lbl">irrelevant update</span><span class="trk"><span class="fill" style="width:9.6%;display:block"></span></span><span class="v">3.0%</span></div>
+        <div class="bar"><span class="lbl">new event</span><span class="trk"><span class="fill" style="width:9%;display:block"></span></span><span class="v">2.8%</span></div>
+        <div class="bar"><span class="lbl">unsupported claim</span><span class="trk"><span class="fill" style="width:3.2%;display:block"></span></span><span class="v">1.0%</span></div>
+        <div class="bar"><span class="lbl">hypothetical</span><span class="trk"><span class="fill" style="width:3.2%;display:block"></span></span><span class="v">1.0%</span></div>
+      </div>
+      <p class="note">Share of model time. The opening is the costliest turn: 220 calls at 48.8 s each, because the agent reads the record, checks the documents and calculates before its first reply.</p>
+    </section>
+    <section>
+      <h2>By what the call produced</h2>
+      <div class="bars">
+        <div class="bar"><span class="lbl">reply text (ends turn)</span><span class="trk"><span class="fill cool" style="width:100%;display:block"></span></span><span class="v">44.6%</span></div>
+        <div class="bar"><span class="lbl">read_record</span><span class="trk"><span class="fill cool" style="width:26.2%;display:block"></span></span><span class="v">11.7%</span></div>
+        <div class="bar"><span class="lbl">update_record</span><span class="trk"><span class="fill cool" style="width:25.8%;display:block"></span></span><span class="v">11.5%</span></div>
+        <div class="bar"><span class="lbl">calculator</span><span class="trk"><span class="fill cool" style="width:20.9%;display:block"></span></span><span class="v">9.3%</span></div>
+        <div class="bar"><span class="lbl">recommend</span><span class="trk"><span class="fill cool" style="width:18.8%;display:block"></span></span><span class="v">8.4%</span></div>
+        <div class="bar"><span class="lbl">decline / escalate</span><span class="trk"><span class="fill cool" style="width:17.9%;display:block"></span></span><span class="v">8.0%</span></div>
+        <div class="bar"><span class="lbl">request_evidence</span><span class="trk"><span class="fill cool" style="width:7.2%;display:block"></span></span><span class="v">3.2%</span></div>
+        <div class="bar"><span class="lbl">log_event</span><span class="trk"><span class="fill cool" style="width:6.7%;display:block"></span></span><span class="v">3.0%</span></div>
+        <div class="bar"><span class="lbl">read_document</span><span class="trk"><span class="fill cool" style="width:0.9%;display:block"></span></span><span class="v">0.4%</span></div>
+      </div>
+      <p class="note">Each bar is the time spent generating that call, mostly thinking. read_record alone is 100 calls (1.5 per run) at 40 s each; the tool itself answers instantly.</p>
+    </section>
+  </div>
+
+  <section>
+    <h2>Runs by version</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Version</th><th>Analyst turns</th><th>Model calls</th><th>Tokens out</th><th>Mean run</th></tr></thead>
+        <tbody>
+          <tr><td>v2 gradual disclosure (F001, F002)</td><td class="num">12</td><td class="num">20.8</td><td class="num">9,400</td><td class="num">14.0 min</td></tr>
+          <tr><td>v1, v3, v4 (F001)</td><td class="num">8–9</td><td class="num">11.7–14</td><td class="num">5,400–6,200</td><td class="num">7.7–8.8 min</td></tr>
+          <tr><td>v5a, v5b, v6, v7, v8 (F001)</td><td class="num">8–9</td><td class="num">10.5–13</td><td class="num">4,100–5,300</td><td class="num">5.7–7.5 min</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Run time follows the number of model calls almost one for one, at about 36 s per call. Version 2 has the most turns, so it is the slowest.</p>
+  </section>
+
+  <section>
+    <h2>What would make it faster</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Change</th><th>Part it cuts</th><th>Likely gain</th><th>Trade-off</th></tr></thead>
+        <tbody>
+          <tr><td>Limit thinking (a thinking budget, or thinking off for tool steps)</td><td>thinking, ≈63% of the run</td><td><span class="pill big">large</span></td><td>Changes what is measured: the model reasons less. A team decision, and the runs would not be comparable with earlier ones.</td></tr>
+          <tr><td>Fewer model calls per run (e.g. the record shown in the opening, so read_record is not needed; one calculator call for several expressions)</td><td>13.6 calls, each with its own thinking</td><td><span class="pill mid">~10–20%</span></td><td>Changes the agent's view or tools; needs the same care as a policy change.</td></tr>
+          <tr><td>Faster decode backend (MLX)</td><td>decode speed</td><td><span class="pill mid">~1.2× in the benchmark</span></td><td>A different 4-bit quantization; in the 4-run check it wrote 1.6× more tokens, which cancelled the gain.</td></tr>
+          <tr><td>Speculative decoding with a small draft model</td><td>decode speed</td><td><span class="pill none">untested</span></td><td>Another download; helps a single request more than 4 at once.</td></tr>
+          <tr><td>Prompt caching, Docker, network, tools, more slots</td><td>prefill 5.8%, the rest ≈0%</td><td><span class="pill none">none</span></td><td>Already 96% cached; 8 slots were no faster than 4 in the benchmark.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Measured Nov 26, 13:25 PST, from the run in progress (<span class="mono">results/2026-11-26_1055_rnw4_all-families_k3_qwen3.5-9b_llama-np4</span>): 67 finished traces (F001 all 54, F002 13), using the timing saved on every model call (latency, time to first token, tokens in and out), and llama-server's own timing log (956 requests: 476k prompt tokens read, 404k generated). S01 and S02 had not started, so their share may differ. Benchmark figures (19.7 tok/s alone, MLX) are from <span class="mono">docs/parallel_qwen.md</span>.
+  </footer>
+</div>
