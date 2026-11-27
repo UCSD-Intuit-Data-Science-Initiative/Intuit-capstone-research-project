@@ -122,7 +122,7 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
     counts, and the model's saved thinking beside each tool call. Tried against the real project Nov 24.
   - [x] Merged #13-#18 (Nov 24-25). Next: the runs in "Next runs" of the plan.
 - [x] Qwen RNW-4 run (Nov 26): 216 / 216 on llama.cpp with 4 slots in 6 h 48 min, 176 passed; branch
-  `stage6/local-qwen-runs` (PR #19's policy fixes + local Qwen set-up + Langfuse flush fix; not pushed).
+  `stage6/local-qwen-runs` (local Qwen set-up + Langfuse flush fix, on top of PR #19; its PR merges after #19).
   Next: the Claude runs.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
@@ -227,7 +227,7 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
   352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
 - [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-4 merged, RNW-4 in; mentor-round PRs #13-#18
-  merged; next the Qwen and Claude runs and PR 5), see the Stage 6 section and
+  merged; Qwen RNW-4 run done Nov 26; next the Claude runs and PR 5), see the Stage 6 section and
   docs/architecture_plan.md
 
 ## Stage 4 notes (from Stage 3)

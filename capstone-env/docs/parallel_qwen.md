@@ -1,6 +1,6 @@
 # Running local Qwen 3.5 9B in parallel (Nov 26 2026)
 
-Question (first on branch `exp/parallel-qwen`): can the 216-run Qwen job (about 15-20 h one run at a time on Ollama)
+Question: can the 216-run Qwen job (about 15-20 h one run at a time on Ollama)
 run faster on this machine (Apple M4 Max, 64 GB)?
 
 ## Result

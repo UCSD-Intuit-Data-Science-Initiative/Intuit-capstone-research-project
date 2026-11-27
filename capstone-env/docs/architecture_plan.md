@@ -341,7 +341,7 @@ kind; `no_decision` details `named_tool_in_text` and `stopped_early`.
 
 ```bash
 git fetch && git checkout main && git pull      # PRs 1-4, RNW-4 and the Nov 24 round (#13-#18) are merged
-cd capstone-env && make build && make test      # 1035 tests
+cd capstone-env && make build && make test      # 1036 tests
 make demo                                        # 4 scripted mock agents through F001, no keys
 make poc-estimate                                # cost of the first real run; make poc runs it
 make run-families ARGS="--model mock --versions 3 --out results/fam1"   # the real runner, mock model
