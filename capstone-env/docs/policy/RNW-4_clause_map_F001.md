@@ -19,7 +19,7 @@ Draft, 2026-11-23. Written by hand (not generated). Policy: *RNW-4 Credit-Line R
 | {METRIC} | net sales | spec. A2 also requires 2014 net sales on DOC-01 > 0; **v2 breaks this** (I-3) |
 | {CURRENT_YEAR}, {PRIOR_YEAR} | 2015, 2014 | |
 | {THRESHOLD} | +1.0% | spec `threshold: 0.01` |
-| {SCHEDULE} | DOC-01, *Supplemental pro forma schedule (unaudited)* | v1 is ambiguous (I-4) |
+| {SCHEDULE} | DOC-01, *Supplemental pro forma schedule (unaudited)* | v1 was ambiguous (I-4); resolved by F-1 |
 | {FIGURE_BASIS} | unaudited pro forma | spec `figure_basis` |
 | {UNIT} | $ millions | the page text says "( in millions )"; the table cells show only "$" |
 | {FACTS} | net sales, net earnings, basic EPS, diluted EPS × 2015/2014. Metric facts: `net_sales_2015`, `net_sales_2014` | |
@@ -32,19 +32,19 @@ Growth values used below: true −4.23% (45366 vs 47369); stale +3.00% (48790); 
 
 | Version | New information → D4 outcome | Record change | RNW-4 final action (fixed) | RNW-4 as written | Current gold | RNW-4 vs case |
 |---|---|---|---|---|---|---|
-| 1 upfront | DOC-02 → 2 | `net_sales_2015` 48790→45366, restatement | **escalate**, F1(a) | renew | decline | **Disagree.** Policy or case must change (I-4) |
+| 1 upfront | DOC-02 → 2 | `net_sales_2015` 48790→45366, restatement | decline, E3 (since F-1; escalate, F1(a) before it) | renew | decline | Agree since F-1 (was **Disagree**, I-4) |
 | 2 gradual_disclosure | DOC-02 → 5; DOC-03 → 5 | both net sales, gap filled | decline, E3 | escalate, F1(b) | decline | Agree after I-1, I-2, I-3. Case breaks A2 (C-2) |
 | 3 correction_after_tentative | DOC-02 → 2 | `net_sales_2015` 48790→45366, restatement | escalate, F1(a) | renew | escalate | Agree after I-1, I-2 |
 | 4 irrelevant_change | DOC-02 → 3 | `diluted_eps_2014` 10.78→10.80, restatement | decline, E3 | decline (record unchanged) | decline | Action agrees. Record needs I-1, I-2. Edit breaks the table's arithmetic (C-4) |
 | 5a hypothetical | RM question → 1 | none | decline, E3 | decline | decline | Agree |
-| 5b unsupported_claim | RM claim → 1 | none | decline, E3/E6 | decline | decline *or* request_evidence | **Disagree** (I-5) |
+| 5b unsupported_claim | RM claim → 1 | none | decline, E3/E6 | decline | decline (since I-5 was fixed; was decline *or* request_evidence) | Agree since the I-5 fix (was **Disagree**) |
 | 6 original | none | none | decline, E3 | decline | decline | Agree |
 | 7 correction_no_flip | DOC-02 → 2 | `net_sales_2015` 46604→45366, restatement | decline, E3 (F3: same side) | decline (record unchanged) | decline | Action agrees. Record needs I-1, I-2 |
 | 8 new_event | DOC-02 notice → 4 | `log_event` new_event | decline, E3 | decline | decline | Agree. Notice also asserts past figures (C-5) |
 
 All 9 also depend on I-7: "Give your final decision" is a decision request only if it comes from the named {REQUESTER} (E5).
 
-RNW-4 and the current case agree on 3 of 9 versions today (5a, 6, 8), and on three more (2, 3, 4/7) once the documents carry dates and C2(2) is clarified. Agreement still needs an independent second derivation. Two versions disagree: v1 and v5b.
+RNW-4 and the current case agree on 3 of 9 versions today (5a, 6, 8), and on three more (2, 3, 4/7) once the documents carry dates and C2(2) is clarified. Agreement still needs an independent second derivation. Two versions disagreed: v1 and v5b. Both agree since the Nov 23 fixes (F-1 for v1, the I-5 gold change for v5b; see "Resolved 2026-11-23" below).
 
 The family also leaves large parts of RNW-4 untested, so it can't show the policy gives clear answers beyond these cases (C-6).
 
@@ -147,6 +147,8 @@ DOC-02 also reprints the 7 unchanged facts. Whether those are confirmations (D4a
 | T3 | final | E4: F1(a) met | | **escalate** (F1(a)) |
 
 **Gold conflict (I-4).** Gold says decline, with escalate graded `over_escalated`. That follows the team's approved Default A (Nov 3), which RNW-4's F1(a) wording now contradicts. Under RNW-4 the answer depends on what {SCHEDULE} is and when the F1(a) baseline is set, and the policy doesn't settle that for documents attached to the opening. Reviewers could reasonably give either answer, so this version shouldn't be graded until the rule is chosen. The gold T1/T2 checkpoints (decline valid, escalate over_escalated) change with it.
+
+**Resolved by F-1 (2026-11-23).** Documents attached to the opening are processed before the F1(a) baseline is set, so DOC-02 is part of the baseline, F1(a) is not met, and v1 is decline (E3), as the gold says. The table above shows the derivation from before F-1.
 
 ### v2 gradual_disclosure
 

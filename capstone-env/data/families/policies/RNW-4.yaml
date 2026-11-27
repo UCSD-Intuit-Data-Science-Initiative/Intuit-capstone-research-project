@@ -1,4 +1,4 @@
-# RNW-4 Credit-Line Renewal Policy: the corrected text in docs/policy/RNW-4.md (fixes F-1 to F-13
+# RNW-4 Credit-Line Renewal Policy: the corrected text in docs/policy/RNW-4.md (fixes F-1 to F-18
 # applied to the Capstone Brainstorm PDF, 2026-11-23). Authored by hand; keep the two in step.
 #
 # Build conventions:
@@ -77,7 +77,7 @@ rules:
   - id: D4
     text: "Outcomes. The tests give exactly one of the outcomes O1 to O9 for each fact a document concerns."
   - id: O1
-    text: "Outcome 1, unverified information (fails Test 1). Record: no change; any figure computed from it is labeled conditional and not stored. Decision: unaffected. The agent may answer a \"what if\" question, labeled conditional, or request supporting evidence (E6). When a decision is requested, it decides on the record (E3 to E4)."
+    text: "Outcome 1, unverified information (fails Test 1). Record: no change; any figure computed from it is labeled conditional and never enters the record as a fact (G3). Decision: unaffected. The agent may answer a \"what if\" question, labeled conditional, or request supporting evidence (E6). When a decision is requested, it decides on the record (E3 to E4)."
   - id: O2
     text: "Outcome 2, correction to a metric fact (past, value given, metric fact). Record: replace the fact (restatement). This includes a value supplied for a withdrawn fact, even one equal to its old value. Decision: recompute (E2, E3), then check F1(a)."
   - id: O3
@@ -117,7 +117,7 @@ rules:
   - id: E6
     text: "Requesting evidence. Ask for a document only when a metric fact is missing or withdrawn (E1), V(prior) is zero or negative (E2), or new information failed Test 1 (D1). A request is not a final action and does not end the review. If nothing arrives by the time a decision is requested, decide on the record as it stands then; if growth is still not computable at that point, the decision is escalate (F1(b))."
   - id: E7
-    text: "After the final action. The review is closed. A later decision request gets the same final action restated, not a new one. A document received after the final action is logged through log_event, citing E7, without the Part D tests, and changes nothing."
+    text: "After the final action. The review is closed. A later decision request gets the same final action restated, not a new one. A document received after the final action changes nothing and is not logged; the Part D tests do not apply."
 
   # Part F. Escalation
   - id: F
@@ -135,9 +135,9 @@ rules:
   - id: G
     text: "Part G. Record-keeping and explanation."
   - id: G1
-    text: "What each fact carries. Fact ID, line item, period, value, {UNIT}, the ID, type and date of the document it came from, how it entered the record (original, restatement or gap_filled), and its status: current or withdrawn. A withdrawn fact also carries the ID of the withdrawal."
+    text: "What the record shows. read_record shows each fact's current value and the ID of the document it came from. The change log shows every change to a fact: old and new value, change type (restatement or gap_filled), document and turn; a fact with no entry is original, from {SCHEDULE}. The event log lists developments. Each fact's line item and period are listed in {FACTS}, and its unit is {UNIT} (A2)."
   - id: G2
-    text: "How the record changes. Facts change only through update_record, citing the document; update_record either sets a value or marks a fact withdrawn. Developments, and documents received after the final action (E7), are logged only through log_event. Every update_record and log_event call also cites the D4 outcome (or E7) and the clause behind it. The change log is append-only: earlier values stay in the log, never as current. Facts a document does not concern stay as they are."
+    text: "How the record changes. Facts change only through update_record, which sets a value and cites the document. Developments are logged only through log_event. The D4 outcome and the clause behind it are stated in the reply before either call (D0), not in the call itself. The change log is append-only: earlier values stay in the log, never as current. Facts a document does not concern stay as they are."
   - id: G3
     text: "What never enters the record. Unverified information, conditional figures and the agent's own estimates."
   - id: G4

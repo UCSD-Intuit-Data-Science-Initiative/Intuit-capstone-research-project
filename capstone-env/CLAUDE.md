@@ -110,9 +110,8 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
 - [x] RNW-4 policy swap — Sophia's PR #10, merged Nov 24 (replaces the old PR 7). All families on RNW-4
   (see the Nov 23 log entries). Langfuse scores: #11 was merged into the `policy/rnw-4` branch by mistake, not
   `main`; #12 put the same commit on `main` (merged Nov 24).
-- [ ] Mentor code-review round (Nov 24) — five changes plus docs, each on its own branch, reviewed, open as
-  PRs #13-#18 (all based on `main`, any merge order is safe), NOT merged yet. All together: 1032 tests pass,
-  `make family-check` clean.
+- [x] Mentor code-review round (Nov 24) — five changes plus docs, each on its own branch, reviewed, merged as
+  PRs #13-#18 (Nov 24-25). On merged `main`: 1035 tests pass, `make family-check` clean.
   Details and rules: docs/architecture_plan.md "Mentor code-review round".
   - [x] `stage6/mechanics-wording`: system prompt says a final action is taken only by calling its tool; the
     `log_event` description says it never changes a figure (use `update_record`). Wording only.
@@ -120,8 +119,8 @@ attempt is logged; open mode for the pilot (mechanics enforced, policy graded).
   - [x] `stage6/grader-labels`: `run_uid`, `label_id`, one primary problem per run, `detail` on four labels.
   - [x] `stage6/turn-state`: per-turn decision state (`turn_states`, `state_summary`, group `state`).
   - [x] `observe/langfuse-ids`: Langfuse carries `run_uid`, `label_id`, the primary problem, the per-turn
-    counts, and the model's saved thinking beside each tool call. Not yet tried against the real project.
-  - [ ] Merge #13-#18 (team); then the runs in "Next runs" of the plan.
+    counts, and the model's saved thinking beside each tool call. Tried against the real project Nov 24.
+  - [x] Merged #13-#18 (Nov 24-25). Next: the runs in "Next runs" of the plan.
 - Naming: harness modes `scripted` / `baseline` (turns one at a time vs all facts at once) are not the
   families' `unscripted` / `scripted`; PR 2 replaces the harness case format with the families.
 
@@ -224,7 +223,7 @@ Held-out: 10+ families, unseen companies + ≥1 unseen metric type, sealed until
   hand-picked); smoke S01 (renew) and S02 (decline). 9 versions × 2 modes = 72 conversations. tests/test_family.py;
   352 tests pass. Next: 8 more pilot families (5 growth_rate + 5 ratio in total).
 - [ ] 5 review + scale  · [ ] 6 connect to harness: in progress (PRs 1-4 merged, RNW-4 in; mentor-round PRs #13-#18
-  open; next the Qwen and Claude runs and PR 5), see the Stage 6 section and
+  merged; next the Qwen and Claude runs and PR 5), see the Stage 6 section and
   docs/architecture_plan.md
 
 ## Stage 4 notes (from Stage 3)
@@ -288,7 +287,7 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
 - Harness (Stage 6): limits (15 tool calls/turn, 60/run, 120 s/turn, 3 rejected calls in a row: proposed); which
   model and keys for the Claude run; multi-agent single writer vs proposals. Each run starts fresh (decided).
   Langfuse vs LangSmith is closed (Nov 24, see the log). Other open items from the Nov 24 round:
-  docs/architecture_plan.md "Open questions" (RNW-4 rule G2 vs the tools, public Langfuse sessions, stale scores).
+  docs/architecture_plan.md "Open questions" (public Langfuse sessions, stale scores, mentor access).
 
 ## Decision log
 - 2026-10-21 Mentor narrowed RQ to decision validity under changing facts (see requirements above).
@@ -431,3 +430,14 @@ not counted). Screens, not reviewed by hand; sums can be coincidences (tolerance
   comes from the model's saved thinking, not from a new field on the tools. (3) Per-turn expected state was built
   directly from the mentor feedback, without a separate design proposal. (4) Version 1 (upfront) stays decline
   (F-1, Nov 23); nothing in this round changes it.
+- 2026-11-25 Mentor-round PRs #13-#18 merged. Before #16 merged, `not_recomputed` was fixed (Sophia): a
+  calculation on the corrected figure counts whether it comes before or after the record write (regrade of
+  the Nov 23 Qwen run: 5 fewer `not_recomputed` labels, pass/fail unchanged). #17 was checked on Nov 24 with
+  one graded run sent to the real Langfuse project. 1035 tests pass on merged `main`.
+- 2026-11-26 RNW-4 tool fixes F-15 to F-18 (Sophia; docs/policy/RNW-4.md): the policy asked for things the
+  tools refuse. (F-15) G2: the D4 outcome and clause are stated in the reply before the call, not in the tool
+  call (no new tool fields, per the Nov 24 decision). (F-16) G2 no longer says `update_record` can mark a fact
+  withdrawn; C2A and Outcome 6 stay, and the tool gains a withdrawal when a family needs one (no pilot family
+  has one). (F-17) E7: a document received after the final action is not logged. (F-18) Outcome 1 and G1
+  match what the calculator and `read_record` do. Families rebuilt (policy text and hash only; gold
+  unchanged). Runs made before this saw the older policy text.
